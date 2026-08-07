@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber'
-import { ContactShadows, Environment, OrbitControls } from '@react-three/drei'
+import { ContactShadows, Environment, OrbitControls, SoftShadows } from '@react-three/drei'
+import * as THREE from 'three'
 import type { DinosaurConfig } from '../game/dinosaurTypes'
 import { Dinosaur } from './Dinosaur'
 
@@ -7,16 +8,45 @@ export function DinoScene({ config }: { config: DinosaurConfig }) {
   return (
     <div className="scene">
       <div className="hint">☝️ Drag to spin!</div>
-      <Canvas shadows camera={{ position: [6.4, 3.7, 7.2], fov: 38 }} dpr={[1, 1.6]}>
-        <ambientLight intensity={1.35} />
-        <directionalLight castShadow position={[4, 8, 5]} intensity={2.2} shadow-mapSize={[1024, 1024]} />
+      <Canvas
+        shadows
+        camera={{ position: [6.4, 3.7, 7.2], fov: 38 }}
+        dpr={[1, 1.6]}
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+      >
+        <color attach="background" args={['#cdeeff']} />
+        <fog attach="fog" args={['#cdeeff', 16, 34]} />
+        <SoftShadows size={26} samples={12} focus={0.7} />
+
+        {/* Low ambient plus a sky/ground bounce keeps the shapes readable.
+            A single bright ambient light flattens everything into a silhouette. */}
+        <ambientLight intensity={0.32} />
+        <hemisphereLight args={['#ddf4ff', '#7fae53', 0.85]} />
+        <directionalLight
+          castShadow
+          position={[5, 8.5, 4.5]}
+          intensity={2.4}
+          color="#fff3dc"
+          shadow-mapSize={[2048, 2048]}
+          shadow-bias={-0.0005}
+          shadow-camera-left={-8}
+          shadow-camera-right={8}
+          shadow-camera-top={8}
+          shadow-camera-bottom={-8}
+        />
+        {/* Cool rim light from behind separates the dinosaur from the sky. */}
+        <directionalLight position={[-6, 4.5, -5]} intensity={1.1} color="#9fd4ff" />
+        <directionalLight position={[0, 2, 8]} intensity={0.45} color="#ffe9d0" />
+
         <Dinosaur config={config} />
+
         <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
-          <planeGeometry args={[40, 40]} />
-          <meshStandardMaterial color="#8bcf62" roughness={1} />
+          <circleGeometry args={[13, 64]} />
+          <meshStandardMaterial color="#93d96a" roughness={0.95} />
         </mesh>
-        <ContactShadows position={[0, 0.01, 0]} opacity={0.32} scale={9} blur={2.3} far={5} />
-        <Environment preset="park" />
+        <ContactShadows position={[0, 0.012, 0]} opacity={0.42} scale={10} blur={2.6} far={5} />
+        <Environment preset="park" environmentIntensity={0.45} />
+
         <OrbitControls
           enablePan={false}
           minDistance={7.5}
