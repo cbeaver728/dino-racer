@@ -1,0 +1,4 @@
+export const HEADS=['Little Head','Big Chomper','Long Snout']as const,BODIES=['Small','Medium','Big']as const,LEGS=['Short','Normal','Long']as const,TAILS=['Short','Long','Giant']as const,FEATURES=['None','Horns','Plates','Spikes']as const,PATTERNS=['Solid','Spots','Stripes']as const,COLORS=['#66c95a','#4da6ff','#9b6ee8','#f26b4b','#f2c94c','#f27db0']as const;
+export interface DinosaurConfig{name:string;head:typeof HEADS[number];body:typeof BODIES[number];legs:typeof LEGS[number];tail:typeof TAILS[number];feature:typeof FEATURES[number];color:typeof COLORS[number];pattern:typeof PATTERNS[number]}
+export interface SavedDinosaur{version:1;id:string;createdAt:string;config:DinosaurConfig}
+export const DEFAULT_DINO:DinosaurConfig={name:'Chompy',head:'Big Chomper',body:'Medium',legs:'Normal',tail:'Long',feature:'Plates',color:COLORS[0],pattern:'Solid'}
