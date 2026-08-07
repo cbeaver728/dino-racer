@@ -15,7 +15,10 @@ Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and respo
 ## Version 1
 
 - Procedural toy-like 3D dinosaur with mouse/touch rotation and idle animation
-- Head, body, legs, tail, feature, color, and pattern choices
+- Five recognizable head families: Raptor, T-Rex, Triceratops, Brachiosaurus, and Parasaurolophus
+- Independent front limbs and back legs with automatic two-legged or four-legged stance
+- Round, clawed, and webbed feet; smooth bodies; wings; plates; spikes; and spiked tails
+- Plain, spotted, and striped skin choices
 - Randomize, reset, design-driven stats, naming, and local save/load
 - Desktop, tablet, and phone layouts
 
