@@ -1,145 +1,200 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { useMemo } from 'react'
+import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 
-export type BalloonMove = { x: number; z: number; nonce: number }
-
 type Point = [number, number, number]
 
-// A closed, mostly flat loop. Only the mountain pass rises above the landscape.
-const roadPoints: Point[] = [
-  [-18, .16, -5], [-14, .16, -7], [-9, .16, -5], [-7, .5, -1], [-5, 2.05, 3],
-  [-1, 1.6, 6], [4, .18, 6], [8, .18, 3], [11, .18, -1], [16, .18, -4],
-  [13, .16, -8], [6, .16, -9], [-2, .16, -9], [-10, .16, -8], [-18, .16, -5],
+const COURSE_POINTS: Point[] = [
+  [-17, .12, -2], [-15, .12, -8], [-8, .12, -11], [2, .12, -11.5],
+  [12, .12, -9], [17, .12, -3], [16, .12, 4], [11, .12, 9],
+  [3, .12, 11], [-5, .52, 10], [-12, .9, 7], [-16, .35, 3],
 ]
 
+const COURSE_CURVE = new THREE.CatmullRomCurve3(
+  COURSE_POINTS.map((point) => new THREE.Vector3(...point)),
+  true,
+  'catmullrom',
+  .34,
+)
+const COURSE_SAMPLES = COURSE_CURVE.getSpacedPoints(180)
+
 const seeded = (seed: number) => {
-  const x = Math.sin(seed * 999.91) * 43758.5453
-  return x - Math.floor(x)
+  const value = Math.sin(seed * 975.31) * 43758.5453
+  return value - Math.floor(value)
 }
 
-function FlatRoad() {
-  const geometry = useMemo(() => {
-    const points = roadPoints.map((point) => new THREE.Vector3(...point))
-    const vertices: number[] = [], uvs: number[] = [], indices: number[] = []
-    points.forEach((point, index) => {
-      const previous = points[(index - 1 + points.length) % points.length]
-      const next = points[(index + 1) % points.length]
-      const direction = next.clone().sub(previous).setY(0).normalize()
-      const side = new THREE.Vector3(-direction.z, 0, direction.x)
-      const width = index >= 3 && index <= 5 ? 1.15 : 1.32
-      const left = point.clone().addScaledVector(side, width)
-      const right = point.clone().addScaledVector(side, -width)
-      vertices.push(left.x, left.y, left.z, right.x, right.y, right.z)
-      uvs.push(0, index / (points.length - 1), 1, index / (points.length - 1))
-      if (index) indices.push((index - 1) * 2, (index - 1) * 2 + 1, index * 2, (index - 1) * 2 + 1, index * 2 + 1, index * 2)
-    })
-    const road = new THREE.BufferGeometry()
-    road.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
-    road.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
-    road.setIndex(indices)
-    road.computeVertexNormals()
-    return road
-  }, [])
+const distanceToRoad = (x: number, z: number) => COURSE_SAMPLES.reduce((nearest, point) => {
+  const distance = Math.hypot(point.x - x, point.z - z)
+  return Math.min(nearest, distance)
+}, Number.POSITIVE_INFINITY)
+
+function ribbonGeometry(width: number, lift = 0) {
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+  COURSE_SAMPLES.forEach((point, index) => {
+    const previous = COURSE_SAMPLES[(index - 1 + COURSE_SAMPLES.length) % COURSE_SAMPLES.length]
+    const next = COURSE_SAMPLES[(index + 1) % COURSE_SAMPLES.length]
+    const tangent = next.clone().sub(previous).setY(0).normalize()
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
+    const left = point.clone().addScaledVector(side, width).add(new THREE.Vector3(0, lift, 0))
+    const right = point.clone().addScaledVector(side, -width).add(new THREE.Vector3(0, lift, 0))
+    positions.push(left.x, left.y, left.z, right.x, right.y, right.z)
+    uvs.push(0, index / COURSE_SAMPLES.length, 1, index / COURSE_SAMPLES.length)
+    if (index) indices.push((index - 1) * 2, (index - 1) * 2 + 1, index * 2, (index - 1) * 2 + 1, index * 2 + 1, index * 2)
+  })
+  const last = COURSE_SAMPLES.length - 1
+  indices.push(last * 2, last * 2 + 1, 0, last * 2 + 1, 1, 0)
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function RaceRoad() {
+  const shoulder = useMemo(() => ribbonGeometry(1.72, .015), [])
+  const road = useMemo(() => ribbonGeometry(1.46, .035), [])
+  const centerMarkers = COURSE_SAMPLES.filter((_, index) => index % 10 < 5)
   return <group>
-    <mesh geometry={geometry} receiveShadow><meshStandardMaterial color="#c98e4d" roughness={1} side={THREE.DoubleSide} /></mesh>
-    <mesh geometry={geometry} position={[0, .015, 0]} receiveShadow><meshBasicMaterial color="#f5d88b" transparent opacity={.3} side={THREE.DoubleSide} /></mesh>
-    {roadPoints.filter((_, index) => index % 2 === 0).map((point, index) => <mesh key={index} position={[point[0], point[1] + .035, point[2]]} rotation={[-Math.PI / 2, 0, 0]}>
-      <circleGeometry args={[.11, 10]} /><meshBasicMaterial color="#fff0bf" transparent opacity={.8} />
+    <mesh geometry={shoulder} receiveShadow><meshStandardMaterial color="#796647" roughness={1} side={THREE.DoubleSide} /></mesh>
+    <mesh geometry={road} receiveShadow><meshStandardMaterial color="#cda968" roughness={.98} side={THREE.DoubleSide} /></mesh>
+    {centerMarkers.map((point, index) => <mesh key={index} position={[point.x, point.y + .075, point.z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[.065, 8]} /><meshBasicMaterial color="#f4dfaa" transparent opacity={.9} />
     </mesh>)}
   </group>
 }
 
-function Grass({ x, z, scale = 1 }: { x: number; z: number; scale?: number }) {
-  return <group position={[x, .02, z]} scale={scale} rotation={[0, (x + z) % 3, 0]}>
-    {[-.13, 0, .13].map((offset) => <mesh key={offset} position={[offset, .18, 0]} rotation={[0, 0, offset * 2.2]}><coneGeometry args={[.045, .42, 4]} /><meshStandardMaterial color="#4c934e" /></mesh>)}
+function GroundPatch({ position, scale, color, opacity = 1 }: { position: [number, number]; scale: [number, number]; color: string; opacity?: number }) {
+  return <mesh position={[position[0], -.035, position[1]]} scale={[scale[0], scale[1], 1]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+    <circleGeometry args={[1, 64]} /><meshStandardMaterial color={color} roughness={1} transparent={opacity < 1} opacity={opacity} />
+  </mesh>
+}
+
+function GrassTuft({ x, z, color = '#4e8f48', scale = 1 }: { x: number; z: number; color?: string; scale?: number }) {
+  return <group position={[x, .02, z]} scale={scale} rotation={[0, seeded(x * 7 + z) * Math.PI, 0]}>
+    {[-.12, 0, .12].map((offset) => <mesh key={offset} position={[offset, .16, 0]} rotation={[0, 0, offset * 2.2]}><coneGeometry args={[.04, .36, 4]} /><meshStandardMaterial color={color} /></mesh>)}
   </group>
 }
 
-function Reeds({ x, z }: { x: number; z: number }) {
-  return <group position={[x, .03, z]}>{[-.35, 0, .32].map((offset) => <group key={offset} position={[offset, 0, offset * .35]}>
-    <mesh position={[0, .52, 0]}><cylinderGeometry args={[.024, .04, 1.04, 7]} /><meshStandardMaterial color="#315e3c" /></mesh>
-    <mesh position={[.05, 1.02, 0]} scale={[.13, .3, .13]}><sphereGeometry args={[1, 10, 8]} /><meshStandardMaterial color="#76523a" /></mesh>
+function Rock({ x, z, scale = 1, color = '#706c70' }: { x: number; z: number; scale?: number; color?: string }) {
+  return <mesh position={[x, .24 * scale, z]} scale={[.52 * scale, .38 * scale, .45 * scale]} rotation={[0, seeded(x + z) * Math.PI, 0]} castShadow receiveShadow>
+    <dodecahedronGeometry args={[1, 0]} /><meshStandardMaterial color={color} roughness={1} />
+  </mesh>
+}
+
+function Reed({ x, z }: { x: number; z: number }) {
+  return <group position={[x, 0, z]}>{[-.2, .05, .25].map((offset) => <group key={offset} position={[offset, 0, offset * .4]}>
+    <mesh position={[0, .43, 0]}><cylinderGeometry args={[.022, .035, .86, 6]} /><meshStandardMaterial color="#315d43" /></mesh>
+    <mesh position={[0, .86, 0]} scale={[.09, .23, .09]}><sphereGeometry args={[1, 10, 7]} /><meshStandardMaterial color="#674630" /></mesh>
   </group>)}</group>
 }
 
-function Marsh() {
-  const reeds = useMemo(() => Array.from({ length: 26 }, (_, i) => ({ x: -19 + seeded(i + 4) * 9.5, z: -7.5 + seeded(i + 40) * 7 })), [])
+function MarshBiome() {
+  const reeds = useMemo(() => Array.from({ length: 44 }, (_, index) => {
+    const x = -19 + seeded(index + 10) * 12
+    const z = -9 + seeded(index + 80) * 11
+    return { x, z }
+  }).filter(({ x, z }) => distanceToRoad(x, z) > 2), [])
   return <group>
-    <mesh position={[-14.6, .005, -3.1]} rotation={[-Math.PI / 2, 0, -.09]} receiveShadow><circleGeometry args={[7.1, 64]} /><meshStandardMaterial color="#4e9ca4" roughness={.3} metalness={.15} /></mesh>
-    <mesh position={[-15.2, .018, -3.4]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[4.5, 6.9, 64]} /><meshBasicMaterial color="#6cb46b" transparent opacity={.3} /></mesh>
-    {reeds.map((reed, i) => <Reeds key={i} {...reed} />)}
-    {Array.from({ length: 18 }, (_, i) => <group key={i} position={[-19 + seeded(i + 100) * 8.5, .07, -6.2 + seeded(i + 132) * 5.8]}>
-      <mesh rotation={[-Math.PI / 2, 0, i]}><circleGeometry args={[.26 + seeded(i) * .22, 12]} /><meshStandardMaterial color="#84b957" /></mesh>
-      {i % 3 === 0 && <mesh position={[.06, .1, 0]} scale={.075}><sphereGeometry args={[1, 12, 8]} /><meshStandardMaterial color="#f2a9bd" /></mesh>}
+    <GroundPatch position={[-13.5, -3.6]} scale={[7.4, 6.7]} color="#5b8763" />
+    <mesh position={[-13.7, .015, -3.6]} scale={[6.2, 5.4, 1]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><circleGeometry args={[1, 64]} /><meshStandardMaterial color="#4c99a0" roughness={.24} metalness={.08} /></mesh>
+    {reeds.map((reed, index) => <Reed key={index} {...reed} />)}
+    {Array.from({ length: 17 }, (_, index) => <group key={index} position={[-18 + seeded(index + 133) * 9, .045, -7 + seeded(index + 174) * 7]}>
+      <mesh rotation={[-Math.PI / 2, 0, index]}><circleGeometry args={[.21 + seeded(index) * .19, 14]} /><meshStandardMaterial color="#76a84e" /></mesh>
+      {index % 4 === 0 && <mesh position={[.04, .1, 0]} scale={.07}><sphereGeometry args={[1, 10, 7]} /><meshStandardMaterial color="#f0a0bd" /></mesh>}
     </group>)}
   </group>
 }
 
 function Mountain({ position, scale, color }: { position: Point; scale: number; color: string }) {
-  return <group position={position} scale={scale}><mesh castShadow receiveShadow position={[0, 1.8, 0]}><coneGeometry args={[2, 3.6, 8]} /><meshStandardMaterial color={color} roughness={1} /></mesh><mesh position={[0, 3.52, 0]}><coneGeometry args={[.78, 1.05, 8]} /><meshStandardMaterial color="#f6f3e8" roughness={.9} /></mesh></group>
-}
-
-function Mountains() {
-  const rocks = useMemo(() => Array.from({ length: 30 }, (_, i) => ({ x: -9 + seeded(i + 44) * 10, z: .5 + seeded(i + 64) * 8, s: .13 + seeded(i + 80) * .35 })), [])
-  return <group><Mountain position={[-7, 0, 4.8]} scale={1.45} color="#77728e" /><Mountain position={[-2.4, 0, 8.2]} scale={1.25} color="#8b7d9c" /><Mountain position={[-3.7, 0, 1.6]} scale={.98} color="#69758c" />
-    {rocks.map((rock, i) => <mesh key={i} position={[rock.x, rock.s / 2, rock.z]} scale={[rock.s * 1.25, rock.s, rock.s]} castShadow><dodecahedronGeometry args={[1, 0]} /><meshStandardMaterial color={i % 2 ? '#5f6077' : '#817589'} roughness={1} /></mesh>)}
+  return <group position={position} scale={scale}>
+    <mesh castShadow receiveShadow position={[0, 1.55, 0]}><coneGeometry args={[1.8, 3.1, 9]} /><meshStandardMaterial color={color} roughness={1} /></mesh>
+    <mesh castShadow position={[0, 2.98, 0]}><coneGeometry args={[.66, .82, 9]} /><meshStandardMaterial color="#f1eee4" roughness={1} /></mesh>
   </group>
 }
 
-function Tree({ x, z, size, hue }: { x: number; z: number; size: number; hue: string }) {
-  return <group position={[x, 0, z]} scale={size}><mesh castShadow position={[0, .65, 0]}><cylinderGeometry args={[.13, .24, 1.3, 8]} /><meshStandardMaterial color="#704d36" /></mesh>
-    <mesh castShadow position={[0, 1.43, 0]}><coneGeometry args={[1.08, 1.95, 9]} /><meshStandardMaterial color={hue} /></mesh><mesh castShadow position={[0, 2.12, 0]}><coneGeometry args={[.78, 1.45, 9]} /><meshStandardMaterial color={hue} /></mesh>
+function MountainBiome() {
+  const rocks = useMemo(() => Array.from({ length: 38 }, (_, index) => {
+    const x = -14 + seeded(index + 228) * 13
+    const z = 4 + seeded(index + 278) * 9
+    return { x, z, scale: .35 + seeded(index + 320) * .7 }
+  }).filter(({ x, z }) => distanceToRoad(x, z) > 2), [])
+  return <group>
+    <GroundPatch position={[-7.5, 8]} scale={[8.7, 5.8]} color="#758060" />
+    <Mountain position={[-8.6, 0, 6.1]} scale={1.2} color="#6d6b7b" /><Mountain position={[-3.3, 0, 12.2]} scale={1.4} color="#7d7187" /><Mountain position={[-13.7, 0, 9]} scale={1.05} color="#626d78" />
+    {rocks.map((rock, index) => <Rock key={index} {...rock} color={index % 2 ? '#67646b' : '#81767d'} />)}
   </group>
 }
 
-function Forest() {
-  const trees = useMemo(() => Array.from({ length: 76 }, (_, i) => ({ x: -.5 + seeded(i + 190) * 11, z: .5 + seeded(i + 238) * 9, size: .56 + seeded(i + 287) * .72, hue: i % 3 === 0 ? '#28734d' : i % 3 === 1 ? '#358b58' : '#236541' })), [])
-  return <group>{trees.map((tree, i) => <Tree key={i} {...tree} />)}
-    {Array.from({ length: 40 }, (_, i) => <Grass key={i} x={-.5 + seeded(i + 322) * 11} z={.2 + seeded(i + 366) * 9} scale={.6 + seeded(i + 400)} />)}
+function Tree({ x, z, size, broadleaf }: { x: number; z: number; size: number; broadleaf: boolean }) {
+  return <group position={[x, 0, z]} scale={size}>
+    <mesh castShadow position={[0, .62, 0]}><cylinderGeometry args={[.13, .22, 1.25, 8]} /><meshStandardMaterial color="#65452f" /></mesh>
+    {broadleaf ? <>
+      <mesh castShadow position={[0, 1.45, 0]} scale={[.9, .72, .9]}><dodecahedronGeometry args={[1, 1]} /><meshStandardMaterial color="#2f7f45" roughness={1} /></mesh>
+      <mesh castShadow position={[-.42, 1.25, .05]} scale={.62}><dodecahedronGeometry args={[1, 1]} /><meshStandardMaterial color="#3d9650" roughness={1} /></mesh>
+    </> : <>
+      <mesh castShadow position={[0, 1.38, 0]}><coneGeometry args={[.92, 1.75, 9]} /><meshStandardMaterial color="#216744" /></mesh>
+      <mesh castShadow position={[0, 2.05, 0]}><coneGeometry args={[.66, 1.35, 9]} /><meshStandardMaterial color="#2d7c49" /></mesh>
+    </>}
   </group>
 }
 
-function Plains() {
-  return <group>{Array.from({ length: 65 }, (_, i) => <Grass key={i} x={7 + seeded(i + 480) * 13} z={-8 + seeded(i + 530) * 11} scale={.55 + seeded(i + 582)} />)}
-    {[[18,-4],[18,2],[10,-7]].map(([x, z], index) => <group key={index} position={[x, .15, z]}><mesh position={[0,.35,0]}><coneGeometry args={[.24,.82,8]} /><meshStandardMaterial color="#d3b55a" /></mesh><mesh position={[.28,.2,.1]} scale={.1}><sphereGeometry args={[1,10,8]} /><meshStandardMaterial color="#f58e76" /></mesh></group>)}
-    <mesh position={[16,.75,-4]}><boxGeometry args={[.12,1.5,.12]} /><meshStandardMaterial color="#fff9dc" /></mesh><mesh position={[16.42,1.25,-4]}><planeGeometry args={[.82,.52]} /><meshStandardMaterial color="#e65f5c" side={THREE.DoubleSide} /></mesh>
+function ForestBiome() {
+  const trees = useMemo(() => Array.from({ length: 118 }, (_, index) => {
+    const x = -.5 + seeded(index + 400) * 17
+    const z = 3.5 + seeded(index + 530) * 10
+    return { x, z, size: .48 + seeded(index + 680) * .62, broadleaf: index % 3 !== 0 }
+  }).filter(({ x, z }) => distanceToRoad(x, z) > 2.65), [])
+  return <group>
+    <GroundPatch position={[7.5, 8.2]} scale={[10.1, 6.4]} color="#477d43" />
+    {trees.map((tree, index) => <Tree key={index} {...tree} />)}
+    {Array.from({ length: 28 }, (_, index) => {
+      const x = seeded(index + 811) * 16
+      const z = 4 + seeded(index + 860) * 9
+      return distanceToRoad(x, z) > 2.1 ? <GrassTuft key={index} x={x} z={z} color="#8caf54" scale={.7} /> : null
+    })}
   </group>
 }
 
-function HotAirBalloon({ destination }: { destination: React.MutableRefObject<THREE.Vector3> }) {
-  const balloon = useRef<THREE.Group>(null)
-  useFrame(({ clock }, delta) => {
-    if (!balloon.current) return
-    balloon.current.position.lerp(new THREE.Vector3(destination.current.x, 6.2, destination.current.z), 1 - Math.exp(-delta * 2.2))
-    balloon.current.position.y += Math.sin(clock.elapsedTime * .9) * .003
-  })
-  return <group ref={balloon} position={[destination.current.x, 6.2, destination.current.z]}><mesh castShadow scale={[1.08,1.38,1.08]}><sphereGeometry args={[1,28,20]} /><meshStandardMaterial color="#f4a942" roughness={.65} /></mesh>
-    <mesh position={[0,.18,1.08]} scale={[.7,1.08,.12]}><sphereGeometry args={[1,24,18]} /><meshStandardMaterial color="#e86460" /></mesh>
-    {[-.55,.55].flatMap((x)=>[-.46,.46].map(z=><mesh key={`${x}${z}`} position={[x,-1.55,z]} rotation={[0,0,x*.15]}><cylinderGeometry args={[.022,.022,1.35,6]} /><meshStandardMaterial color="#6d5037" /></mesh>))}<mesh position={[0,-2.18,0]}><boxGeometry args={[.78,.36,.68]} /><meshStandardMaterial color="#80573d" /></mesh>
+function PlainsBiome() {
+  const grass = useMemo(() => Array.from({ length: 110 }, (_, index) => {
+    const x = -2 + seeded(index + 900) * 22
+    const z = -13 + seeded(index + 1040) * 11
+    return { x, z, scale: .45 + seeded(index + 1170) * .7 }
+  }).filter(({ x, z }) => distanceToRoad(x, z) > 1.9), [])
+  return <group>
+    <GroundPatch position={[8.5, -8]} scale={[13.4, 7]} color="#8cb85e" />
+    {grass.map((item, index) => <GrassTuft key={index} {...item} color={index % 4 === 0 ? '#d0b75b' : '#6d9f4d'} />)}
+    {Array.from({ length: 16 }, (_, index) => <mesh key={index} position={[-1 + seeded(index + 1300) * 21, .08, -12 + seeded(index + 1340) * 10]} scale={.06 + seeded(index) * .04}>
+      <sphereGeometry args={[1, 10, 7]} /><meshStandardMaterial color={index % 2 ? '#e78368' : '#f0cc5b'} />
+    </mesh>)}
   </group>
 }
 
-function BalloonCamera({ move }: { move: BalloonMove }) {
-  const controls = useRef<React.ElementRef<typeof OrbitControls>>(null)
-  const { camera } = useThree()
-  const destination = useRef(new THREE.Vector3(-1, 0, -11))
-  const actual = useRef(new THREE.Vector3(-1, 0, -11))
-  const handled = useRef(0)
-  useEffect(() => { camera.position.set(8, 12, -22) }, [camera])
-  useFrame((_, delta) => {
-    if (move.nonce !== handled.current) { handled.current = move.nonce; destination.current.x += move.x; destination.current.z += move.z }
-    actual.current.lerp(destination.current, 1 - Math.exp(-delta * 2.0))
-    if (controls.current) { controls.current.target.lerp(actual.current, 1 - Math.exp(-delta * 2.8)); controls.current.update() }
-  })
-  return <><HotAirBalloon destination={destination} /><OrbitControls ref={controls} enableDamping dampingFactor={.08} minDistance={7} maxDistance={34} maxPolarAngle={Math.PI / 2.06} minPolarAngle={.28} target={[-1,0,-11]} /></>
+function StartGate() {
+  const point = COURSE_CURVE.getPointAt(.4)
+  const tangent = COURSE_CURVE.getTangentAt(.4)
+  const angle = Math.atan2(tangent.x, tangent.z)
+  return <group position={[point.x, point.y, point.z]} rotation={[0, angle, 0]}>
+    {[-1.2, 1.2].map((x) => <mesh key={x} castShadow position={[x, .82, 0]}><boxGeometry args={[.18, 1.65, .18]} /><meshStandardMaterial color="#493c2f" /></mesh>)}
+    <mesh castShadow position={[0, 1.58, 0]}><boxGeometry args={[2.58, .28, .25]} /><meshStandardMaterial color="#493c2f" /></mesh>
+    {[-.9,-.6,-.3,0,.3,.6,.9].map((x, index) => <mesh key={x} position={[x, 1.59, -.14]}><planeGeometry args={[.3,.25]} /><meshBasicMaterial color={index % 2 ? '#f0d96b' : '#f7f1da'} /></mesh>)}
+  </group>
 }
 
-export function RaceWorld({ move }: { move: BalloonMove }) {
-  return <Canvas shadows camera={{ position: [8,12,-22], fov: 46 }} dpr={[1,1.6]}>
-    <color attach="background" args={['#8ad2e4']} /><fog attach="fog" args={['#8ad2e4', 25, 58]} /><ambientLight intensity={1.5} /><directionalLight castShadow position={[-10,18,8]} intensity={2.25} shadow-mapSize={[1024,1024]} />
-    <mesh receiveShadow rotation={[-Math.PI/2,0,0]} position={[0,-.03,0]}><planeGeometry args={[70,70]} /><meshStandardMaterial color="#76b65a" roughness={1} /></mesh>
-    <Marsh /><Mountains /><Forest /><Plains /><FlatRoad /><BalloonCamera move={move} />
+function CourseCamera() {
+  return <OrbitControls makeDefault enableDamping dampingFactor={.08} enablePan minDistance={19} maxDistance={49} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
+}
+
+export function RaceWorld() {
+  return <Canvas shadows camera={{ position: [25, 27, 31], fov: 39 }} dpr={[1, 1.6]}>
+    <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 42, 74]} />
+    <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-16, 26, 12]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-28} shadow-camera-right={28} shadow-camera-top={28} shadow-camera-bottom={-28} />
+    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[76, 68]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
+    <PlainsBiome /><MarshBiome /><MountainBiome /><ForestBiome />
+    <RaceRoad /><StartGate /><CourseCamera />
   </Canvas>
 }
