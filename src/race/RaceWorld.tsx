@@ -6,7 +6,7 @@ import * as THREE from 'three'
 type Point = [number, number, number]
 
 // Expands the full circuit while preserving the approved composition.
-const WORLD_SCALE = 1.24
+const WORLD_SCALE = 1.36
 
 const COURSE_POINTS: Point[] = [
   [-17, .12, -2], [-15, .12, -8], [-8, .12, -11], [2, .12, -11.5],
@@ -127,7 +127,7 @@ function MountainBiome() {
   }).filter(({ x, z }) => distanceToRoad(x, z) > 2), [])
   return <group>
     <GroundPatch position={[-7.5, 8]} scale={[8.7, 5.8]} color="#758060" />
-    <Mountain position={[-8.6, 0, 6.1]} scale={1.2} color="#6d6b7b" /><Mountain position={[-3.3, 0, 12.2]} scale={1.4} color="#7d7187" /><Mountain position={[-13.7, 0, 9]} scale={1.05} color="#626d78" />
+    <Mountain position={[-3.3, 0, 12.2]} scale={1.4} color="#7d7187" /><Mountain position={[-13.7, 0, 9]} scale={1.05} color="#626d78" />
     {rocks.map((rock, index) => <Rock key={index} {...rock} color={index % 2 ? '#67646b' : '#81767d'} />)}
   </group>
 }
@@ -189,14 +189,14 @@ function StartGate() {
 }
 
 function CourseCamera() {
-  return <OrbitControls makeDefault enableDamping dampingFactor={.08} enablePan minDistance={22} maxDistance={58} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
+  return <OrbitControls makeDefault enableDamping dampingFactor={.08} enablePan minDistance={22} maxDistance={64} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
 }
 
 export function RaceWorld() {
   return <Canvas shadows camera={{ position: [29, 31, 36], fov: 39 }} dpr={[1, 1.6]}>
     <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 60, 102]} />
-    <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-19, 29, 15]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-35} shadow-camera-right={35} shadow-camera-top={35} shadow-camera-bottom={-35} />
-    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[92, 84]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
+    <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-19, 29, 15]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-38} shadow-camera-right={38} shadow-camera-top={38} shadow-camera-bottom={-38} />
+    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[100, 92]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
     <group scale={[WORLD_SCALE, 1.04, WORLD_SCALE]}>
       <PlainsBiome /><MarshBiome /><MountainBiome /><ForestBiome />
       <RaceRoad /><StartGate />

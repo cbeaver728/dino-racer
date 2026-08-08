@@ -14,6 +14,8 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .race-header p { margin: 0; font-size: .64rem; font-weight: 900; letter-spacing: 2px; }
 .race-header h1 { margin: 1px 0; font: 800 clamp(1.8rem, 4vw, 3.05rem)/.92 'Baloo 2'; letter-spacing: .5px; }
 .race-header > span { font-size: 2.35rem; }
+.course-info-toggle { position: absolute; z-index: 3; top: 25px; right: max(72px, calc((100vw - 1240px) / 2 + 58px)); padding: 7px 10px; color: #fff; border: 1px solid #ffffff66; border-radius: 10px; background: #173f49df; box-shadow: 0 3px 0 #102f36; font-size: .65rem; font-weight: 900; }
+.course-info-toggle:hover { background: #245966; }
 
 .race-map, .race-report { position: absolute; top: 114px; width: min(302px, calc(100vw - 36px)); border: 2px solid #ffffffd9; border-radius: 18px; background: #fffdf1e8; box-shadow: 0 7px 0 #173d4266, 0 15px 35px #183f4530; backdrop-filter: blur(7px); }
 .race-map { left: max(18px, calc((100vw - 1240px) / 2)); padding: 12px; }
@@ -74,6 +76,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
   .race-header h1 { font-size: 1.45rem; }
   .race-header p { font-size: .48rem; }
   .race-header > span { font-size: 1.75rem; }
+  .course-info-toggle { top: 65px; right: 9px; padding: 6px 8px; font-size: .6rem; }
   .race-map { display: none; }
   .race-report { left: 9px; right: 9px; bottom: 77px; width: auto; padding: 10px; }
   .race-report > p, .demo-chip { display: none; }
