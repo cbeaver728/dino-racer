@@ -1,36 +1,21 @@
-import { useMemo } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { useMemo, useRef, type ReactNode } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
-
-type Point = [number, number, number]
-
-// Expands the full circuit while preserving the approved composition.
-const WORLD_SCALE = 1.36
-
-const COURSE_POINTS: Point[] = [
-  [-17, .12, -2], [-15, .12, -8], [-8, .12, -11], [2, .12, -11.5],
-  [12, .12, -9], [17, .12, -3], [16, .12, 4], [11, .12, 9],
-  [3, .12, 11], [-5, .52, 10], [-12, .9, 7], [-16, .35, 3],
-]
-
-const COURSE_CURVE = new THREE.CatmullRomCurve3(
-  COURSE_POINTS.map((point) => new THREE.Vector3(...point)),
-  true,
-  'catmullrom',
-  .34,
-)
-const COURSE_SAMPLES = COURSE_CURVE.getSpacedPoints(180)
+import {
+  COURSE_CURVE,
+  COURSE_SAMPLES,
+  START_T,
+  WORLD_LIFT,
+  WORLD_SCALE,
+  distanceToRoad,
+  type Point,
+} from './course'
 
 const seeded = (seed: number) => {
   const value = Math.sin(seed * 975.31) * 43758.5453
   return value - Math.floor(value)
 }
-
-const distanceToRoad = (x: number, z: number) => COURSE_SAMPLES.reduce((nearest, point) => {
-  const distance = Math.hypot(point.x - x, point.z - z)
-  return Math.min(nearest, distance)
-}, Number.POSITIVE_INFINITY)
 
 function ribbonGeometry(width: number, lift = 0) {
   const positions: number[] = []
@@ -178,29 +163,45 @@ function PlainsBiome() {
 }
 
 function StartGate() {
-  const point = COURSE_CURVE.getPointAt(.4)
-  const tangent = COURSE_CURVE.getTangentAt(.4)
+  const point = COURSE_CURVE.getPointAt(START_T)
+  const tangent = COURSE_CURVE.getTangentAt(START_T)
   const angle = Math.atan2(tangent.x, tangent.z)
   return <group position={[point.x, point.y, point.z]} rotation={[0, angle, 0]}>
     {[-1.2, 1.2].map((x) => <mesh key={x} castShadow position={[x, .82, 0]}><boxGeometry args={[.18, 1.65, .18]} /><meshStandardMaterial color="#493c2f" /></mesh>)}
     <mesh castShadow position={[0, 1.58, 0]}><boxGeometry args={[2.58, .28, .25]} /><meshStandardMaterial color="#493c2f" /></mesh>
     {[-.9,-.6,-.3,0,.3,.6,.9].map((x, index) => <mesh key={x} position={[x, 1.59, -.14]}><planeGeometry args={[.3,.25]} /><meshBasicMaterial color={index % 2 ? '#f0d96b' : '#f7f1da'} /></mesh>)}
+    {/* Chequered strip on the ground marking start and finish. */}
+    {[-1.15, -.85, -.55, -.25, .05, .35, .65, .95].map((x, index) => <mesh key={x} position={[x + .15, .045, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[.3, .5]} /><meshBasicMaterial color={index % 2 ? '#20242b' : '#f7f1da'} />
+    </mesh>)}
   </group>
 }
 
-function CourseCamera() {
-  return <OrbitControls makeDefault enableDamping dampingFactor={.08} enablePan minDistance={22} maxDistance={64} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
+/**
+ * Free orbit until a race is on, then it eases its target onto the leader so the
+ * pack stays framed without taking the camera away from the player.
+ */
+function CourseCamera({ follow }: { follow?: THREE.Vector3 | null }) {
+  const controls = useRef<{ target: THREE.Vector3; update: () => void } | null>(null)
+  useFrame(() => {
+    if (follow && controls.current) {
+      controls.current.target.lerp(follow, .06)
+      controls.current.update()
+    }
+  })
+  return <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={.08} enablePan minDistance={16} maxDistance={64} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
 }
 
-export function RaceWorld() {
+export function RaceWorld({ children, follow }: { children?: ReactNode; follow?: THREE.Vector3 | null }) {
   return <Canvas shadows camera={{ position: [29, 31, 36], fov: 39 }} dpr={[1, 1.6]}>
     <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 60, 102]} />
     <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-19, 29, 15]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-38} shadow-camera-right={38} shadow-camera-top={38} shadow-camera-bottom={-38} />
     <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[100, 92]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
-    <group scale={[WORLD_SCALE, 1.04, WORLD_SCALE]}>
+    <group scale={[WORLD_SCALE, WORLD_LIFT, WORLD_SCALE]}>
       <PlainsBiome /><MarshBiome /><MountainBiome /><ForestBiome />
       <RaceRoad /><StartGate />
+      {children}
     </group>
-    <CourseCamera />
+    <CourseCamera follow={follow} />
   </Canvas>
 }

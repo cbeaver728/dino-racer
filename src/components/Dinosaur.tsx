@@ -1,4 +1,4 @@
-﻿import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { isBiped, type DinosaurConfig, type FootType, type HeadType } from '../game/dinosaurTypes'
@@ -236,20 +236,32 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
   )
 }
 
-function GroundLeg({ x, z, height, palette, foot }: {
-  x: number; z: number; height: number; palette: DinoPalette; foot: FootType
+/**
+ * The outer group sits at the hip so the leg can swing about it; everything
+ * inside is offset back down to the ground. Rotating a group rooted at the foot
+ * would pivot the leg around its toes instead.
+ */
+function GroundLeg({ x, z, height, palette, foot, swing }: {
+  x: number
+  z: number
+  height: number
+  palette: DinoPalette
+  foot: FootType
+  swing?: RefObject<THREE.Group | null>
 }) {
   return (
-    <group position={[x, 0, z]}>
-      <mesh position={[0, height * 0.7, 0]} scale={[0.46, 0.56 + height * 0.08, 0.5]}>
-        <sphereGeometry args={[0.62, 30, 22]} />
-        <Skin color={palette.base} />
-      </mesh>
-      <mesh position={[0, height * 0.33, 0]}>
-        <cylinderGeometry args={[0.23, 0.145, height * 0.8, 26]} />
-        <Skin color={palette.shade} />
-      </mesh>
-      <Foot type={foot} palette={palette} />
+    <group position={[x, height, z]} ref={swing}>
+      <group position={[0, -height, 0]}>
+        <mesh position={[0, height * 0.7, 0]} scale={[0.46, 0.56 + height * 0.08, 0.5]}>
+          <sphereGeometry args={[0.62, 30, 22]} />
+          <Skin color={palette.base} />
+        </mesh>
+        <mesh position={[0, height * 0.33, 0]}>
+          <cylinderGeometry args={[0.23, 0.145, height * 0.8, 26]} />
+          <Skin color={palette.shade} />
+        </mesh>
+        <Foot type={foot} palette={palette} />
+      </group>
     </group>
   )
 }
@@ -350,10 +362,21 @@ function BackFeature({ config, palette, dims }: {
   )
 }
 
-export function Dinosaur({ config }: { config: DinosaurConfig }) {
+export function Dinosaur({ config, gait }: {
+  config: DinosaurConfig
+  /**
+   * Live running speed, 0 when standing. Read through a ref inside the frame
+   * loop so a racing dinosaur animates without re-rendering every tick.
+   */
+  gait?: RefObject<number>
+}) {
   const root = useRef<THREE.Group>(null)
   const tail = useRef<THREE.Group>(null)
   const neck = useRef<THREE.Group>(null)
+  const hindLeft = useRef<THREE.Group>(null)
+  const hindRight = useRef<THREE.Group>(null)
+  const frontLeft = useRef<THREE.Group>(null)
+  const frontRight = useRef<THREE.Group>(null)
 
   const palette = useMemo(
     () => buildPalette(config.color, config.patternColor),
@@ -478,14 +501,27 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
 
   useFrame(({ clock }) => {
     const time = clock.elapsedTime
+    const run = Math.min(1, Math.max(0, gait?.current ?? 0))
+
+    // Legs swing about the hips on a diagonal gait; the pair on one diagonal
+    // reaches forward while the other drives back.
+    const stride = time * (5 + run * 7)
+    const swing = run * 0.62
+    const bounce = run * 0.09
+    if (hindLeft.current) hindLeft.current.rotation.z = Math.sin(stride) * swing
+    if (hindRight.current) hindRight.current.rotation.z = Math.sin(stride + Math.PI) * swing
+    if (frontLeft.current) frontLeft.current.rotation.z = Math.sin(stride + Math.PI) * swing
+    if (frontRight.current) frontRight.current.rotation.z = Math.sin(stride) * swing
+
     if (root.current) {
       root.current.position.y = 0.04 + Math.sin(time * 2) * 0.035
-      root.current.rotation.z = Math.sin(time * 1.4) * 0.012
+        + Math.abs(Math.sin(stride)) * bounce
+      root.current.rotation.z = Math.sin(time * 1.4) * 0.012 - run * 0.05
     }
-    if (tail.current) tail.current.rotation.y = Math.sin(time * 1.8) * 0.09
+    if (tail.current) tail.current.rotation.y = Math.sin(time * (1.8 + run * 4)) * (0.09 + run * 0.12)
     if (neck.current) {
-      neck.current.rotation.z = Math.sin(time * 1.6 + 0.6) * 0.035
-      neck.current.rotation.y = Math.sin(time * 0.9) * 0.05
+      neck.current.rotation.z = Math.sin(time * (1.6 + run * 3) + 0.6) * (0.035 + run * 0.03)
+      neck.current.rotation.y = Math.sin(time * 0.9) * 0.05 * (1 - run)
     }
   })
 
@@ -501,6 +537,7 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
           height={hindDraw}
           palette={palette}
           foot={config.feet}
+          swing={side < 0 ? hindLeft : hindRight}
         />
       ))}
       {!biped && [-1, 1].map((side) => (
@@ -511,6 +548,7 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
           height={frontDraw}
           palette={palette}
           foot={config.feet}
+          swing={side < 0 ? frontLeft : frontRight}
         />
       ))}
 

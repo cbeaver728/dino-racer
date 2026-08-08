@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber'
-import { ContactShadows, Environment, OrbitControls, SoftShadows } from '@react-three/drei'
+import { ContactShadows, Environment, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DinosaurConfig } from '../game/dinosaurTypes'
 import { Dinosaur } from './Dinosaur'
@@ -8,15 +8,17 @@ export function DinoScene({ config }: { config: DinosaurConfig }) {
   return (
     <div className="scene">
       <div className="hint">☝️ Drag to spin!</div>
+      {/* `shadows="soft"` uses PCFSoftShadowMap. drei's <SoftShadows> patches
+          THREE.ShaderChunk globally, so the save modal's second scene patched it
+          a second time and every shader on the page failed to compile. */}
       <Canvas
-        shadows
+        shadows="soft"
         camera={{ position: [6.4, 3.7, 7.2], fov: 38 }}
         dpr={[1, 1.6]}
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
         <color attach="background" args={['#cdeeff']} />
         <fog attach="fog" args={['#cdeeff', 16, 34]} />
-        <SoftShadows size={26} samples={12} focus={0.7} />
 
         {/* Low ambient plus a sky/ground bounce keeps the shapes readable.
             A single bright ambient light flattens everything into a silhouette. */}

@@ -4,15 +4,21 @@ import { PartSelector } from './components/PartSelector'
 import { StatsPanel } from './components/StatsPanel'
 import { SaveDinoModal } from './components/SaveDinoModal'
 import { BODIES, COLORS, DEFAULT_DINO, FEATURES, FEET, FRONT_LIMBS, HEADS, HIND_LEGS, PATTERN_COLORS, PATTERN_COLOR_NAMES, SKINS, TAILS, isBiped, type DinosaurConfig } from './game/dinosaurTypes'
-import { loadDinosaur, saveDinosaur } from './game/storage'
+import { deleteDinosaur, loadRoster, saveDinosaur } from './game/storage'
+import type { SavedDinosaur } from './game/dinosaurTypes'
 
 const pick = <T,>(options: readonly T[]) => options[Math.floor(Math.random() * options.length)]
 
 export default function App() {
-  const previous = useMemo(loadDinosaur, [])
+  const [roster, setRoster] = useState<SavedDinosaur[]>(loadRoster)
   const [dino, setDino] = useState<DinosaurConfig>(DEFAULT_DINO)
   const [saved, setSaved] = useState(false)
   const set = <K extends keyof DinosaurConfig>(key: K, value: DinosaurConfig[K]) => setDino((current) => ({ ...current, [key]: value }))
+
+  const removeDino = (id: string) => {
+    deleteDinosaur(id)
+    setRoster(loadRoster())
+  }
 
   const randomize = () => setDino((current) => ({
     ...current,
@@ -23,7 +29,10 @@ export default function App() {
 
   const save = () => {
     const cleanDino = { ...dino, name: dino.name.trim() || 'Chompy' }
-    setDino(cleanDino); saveDinosaur(cleanDino); setSaved(true)
+    setDino(cleanDino)
+    saveDinosaur(cleanDino)
+    setRoster(loadRoster())
+    setSaved(true)
   }
 
   const biped = isBiped(dino)
@@ -48,8 +57,20 @@ export default function App() {
 
   return (
     <main>
-      <header><span>🧪</span><div><h1>DINO LAB</h1><p>Build your own dinosaur!</p></div><span>🥚</span></header>
-      {previous && <aside className="welcome"><b>👋 Welcome back!</b><button onClick={() => setDino(previous.config)}>LOAD {previous.config.name.toUpperCase()}</button></aside>}
+      <header><span>🧪</span><div><h1>DINO LAB</h1><p>Build your own dinosaur!</p></div><a className="to-race" href="./race.html">🏁<span>RACE<br />TRACK</span></a></header>
+
+      {roster.length > 0 && <aside className="stable" aria-label="Your saved dinosaurs">
+        <div className="stable-head">
+          <b>🦕 MY DINOSAURS</b>
+          <a className="stable-race" href="./race.html">🏁 TAKE THEM RACING</a>
+        </div>
+        <ul>{roster.map((entry) => <li key={entry.id}>
+          <i style={{ background: entry.config.color }} />
+          <div><strong>{entry.config.name}</strong><small>{entry.config.head} · {entry.config.body.toLowerCase()}</small></div>
+          <button className="stable-load" onClick={() => setDino(entry.config)}>LOAD</button>
+          <button className="stable-delete" aria-label={`Delete ${entry.config.name}`} onClick={() => removeDino(entry.id)}>✕</button>
+        </li>)}</ul>
+      </aside>}
       <div className="builder">
         <section className="preview">
           <DinoScene config={dino} />
