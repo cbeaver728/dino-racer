@@ -3,6 +3,17 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { isBiped, type DinosaurConfig, type FootType, type HeadType } from '../game/dinosaurTypes'
 import { buildPalette, type DinoPalette } from '../game/palette'
+import { createDinoSkinMaterial, type DinoSkinOptions } from '../game/dinoSkin'
+import {
+  bodySliceAt,
+  createBodyGeometry,
+  createSweptGeometry,
+  createTubeGeometry,
+  bezier,
+  type BodyDims,
+  type Vec3,
+} from './dinoGeometry'
+import { headShape } from './headProfiles'
 
 const BODY_SIZE = {
   Small: [1.25, 0.8, 1.65],
@@ -17,8 +28,6 @@ const FRONT_HEIGHT = {
   'Long Front Legs': 1.4,
 } as const
 
-type Vec3 = [number, number, number]
-
 const Skin = ({ color }: { color: string }) => (
   <meshStandardMaterial color={color} roughness={0.48} metalness={0} envMapIntensity={0.55} />
 )
@@ -27,272 +36,144 @@ const Bone = ({ color }: { color: string }) => (
   <meshStandardMaterial color={color} roughness={0.28} metalness={0} envMapIntensity={0.8} />
 )
 
-/** Point along a quadratic bezier, used to bend necks and tails into a curve. */
-const bezier = (a: Vec3, control: Vec3, b: Vec3, t: number): Vec3 => {
-  const m = 1 - t
-  return [
-    m * m * a[0] + 2 * m * t * control[0] + t * t * b[0],
-    m * m * a[1] + 2 * m * t * control[1] + t * t * b[1],
-    m * m * a[2] + 2 * m * t * control[2] + t * t * b[2],
-  ]
+function useDisposable<T extends { dispose(): void }>(factory: () => T, key: string) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const value = useMemo(factory, [key])
+  useEffect(() => () => value.dispose(), [value])
+  return value
 }
 
-/**
- * One smooth tapered tube swept along the bezier, used for necks and tails.
- *
- * An earlier version stacked overlapping spheres, but once the taper got thin
- * the spacing outgrew the radius and the limb visibly broke into beads. Sweeping
- * a real surface fixes that at any length and costs one draw call instead of ~16.
- */
-function TaperedLimb({
-  from, control, to, startRadius, endRadius, color, falloff = 1, segments = 30, radial = 16,
-}: {
-  from: Vec3
-  control: Vec3
-  to: Vec3
-  startRadius: number
-  endRadius: number
-  color: string
-  falloff?: number
-  segments?: number
-  radial?: number
+/** One patterned hide material per part; the offset keeps the pattern aligned. */
+function useSkinMaterial(options: DinoSkinOptions, offset: Vec3) {
+  const material = useMemo(() => createDinoSkinMaterial(options), [])
+  useEffect(() => () => material.dispose(), [material])
+  useEffect(() => {
+    material.applySkin(options)
+  }, [material, options.base, options.belly, options.pattern, options.skin])
+  useEffect(() => {
+    material.setPatternOffset({ x: offset[0], y: offset[1], z: offset[2] })
+  }, [material, offset[0], offset[1], offset[2]])
+  return material
+}
+
+function Eye({ side, shape, palette }: {
+  side: number
+  shape: ReturnType<typeof headShape>
+  palette: DinoPalette
 }) {
-  // Keyed on the values rather than the array identities, which change each render.
-  const key = `${from}|${control}|${to}|${startRadius}|${endRadius}|${falloff}|${segments}|${radial}`
-  const geometry = useMemo(() => {
-    const a = new THREE.Vector3(...from)
-    const c = new THREE.Vector3(...control)
-    const b = new THREE.Vector3(...to)
-
-    const at = (t: number) => new THREE.Vector3()
-      .addScaledVector(a, (1 - t) * (1 - t))
-      .addScaledVector(c, 2 * (1 - t) * t)
-      .addScaledVector(b, t * t)
-
-    const tangentAt = (t: number) => new THREE.Vector3()
-      .addScaledVector(new THREE.Vector3().subVectors(c, a), 2 * (1 - t))
-      .addScaledVector(new THREE.Vector3().subVectors(b, c), 2 * t)
-      .normalize()
-
-    const positions: number[] = []
-    const indices: number[] = []
-    // Parallel-transported frame keeps the rings from twisting along the curve.
-    let normal = new THREE.Vector3(0, 1, 0)
-
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments
-      const center = at(t)
-      const tangent = tangentAt(t)
-      const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize()
-      normal = new THREE.Vector3().crossVectors(binormal, tangent).normalize()
-      const radius = startRadius + (endRadius - startRadius) * Math.pow(t, falloff)
-
-      for (let j = 0; j < radial; j++) {
-        const angle = (j / radial) * Math.PI * 2
-        const vertex = center.clone()
-          .addScaledVector(normal, Math.cos(angle) * radius)
-          .addScaledVector(binormal, Math.sin(angle) * radius)
-        positions.push(vertex.x, vertex.y, vertex.z)
-      }
-    }
-
-    for (let i = 0; i < segments; i++) {
-      for (let j = 0; j < radial; j++) {
-        const next = (j + 1) % radial
-        const ring = i * radial
-        const ringNext = (i + 1) * radial
-        indices.push(ring + j, ringNext + j, ring + next)
-        indices.push(ring + next, ringNext + j, ringNext + next)
-      }
-    }
-
-    const tip = at(1)
-    positions.push(tip.x, tip.y, tip.z)
-    const tipIndex = positions.length / 3 - 1
-    for (let j = 0; j < radial; j++) {
-      indices.push(segments * radial + j, tipIndex, segments * radial + ((j + 1) % radial))
-    }
-
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-    geo.setIndex(indices)
-    geo.computeVertexNormals()
-    return geo
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-
-  useEffect(() => () => geometry.dispose(), [geometry])
-
+  const { x, y, depth, size } = shape.eye
   return (
-    <mesh geometry={geometry}>
-      <Skin color={color} />
-    </mesh>
-  )
-}
-
-function Eye({ side, head, palette }: { side: number; head: HeadType; palette: DinoPalette }) {
-  const size = head === 'T-Rex' ? 0.185 : 0.16
-  // Sit the socket just proud of each skull's own width, and low enough that the
-  // eyeball and brow stay inside the silhouette instead of perching on top.
-  const depth = head === 'Triceratops' ? 0.66 : head === 'Brachiosaurus' ? 0.5 : 0.54
-  return (
-    <group position={[head === 'Brachiosaurus' ? 0.12 : 0.2, 0.26, side * depth]}>
-      <mesh position={[-0.03, size * 0.6, side * 0.04]} rotation={[0, 0, 0.24]} scale={[1.3, 0.44, 1.08]}>
-        <sphereGeometry args={[size * 0.98, 20, 14]} />
+    <group position={[x, y, side * depth]}>
+      <mesh position={[-0.02, size * 0.62, side * 0.03]} rotation={[0, 0, 0.22]} scale={[1.35, 0.42, 1.05]}>
+        <sphereGeometry args={[size, 20, 14]} />
         <Skin color={palette.shade} />
       </mesh>
       <mesh scale={[1, 1.05, 0.72]}>
-        <sphereGeometry args={[size, 28, 20]} />
+        <sphereGeometry args={[size, 26, 18]} />
         <meshStandardMaterial color={palette.sclera} roughness={0.22} />
       </mesh>
-      <mesh position={[0.072, 0.012, side * 0.1]}>
-        <sphereGeometry args={[size * 0.48, 22, 16]} />
+      <mesh position={[size * 0.42, 0.01, side * 0.1]}>
+        <sphereGeometry args={[size * 0.46, 20, 14]} />
         <meshStandardMaterial color={palette.pupil} roughness={0.1} />
       </mesh>
-      <mesh position={[size * 0.66, size * 0.38, side * 0.14]}>
-        <sphereGeometry args={[size * 0.2, 12, 10]} />
+      <mesh position={[size * 0.62, size * 0.36, side * 0.14]}>
+        <sphereGeometry args={[size * 0.19, 12, 10]} />
         <meshBasicMaterial color="#ffffff" />
       </mesh>
     </group>
   )
 }
 
-function Nostrils({ x, y, spread, palette }: { x: number; y: number; spread: number; palette: DinoPalette }) {
-  return (
-    <>
-      {[-1, 1].map((side) => (
-        <mesh key={side} position={[x, y, side * spread]} scale={[0.6, 1, 1]}>
-          <sphereGeometry args={[0.055, 14, 10]} />
-          <meshStandardMaterial color={palette.pupil} roughness={0.5} />
-        </mesh>
-      ))}
-    </>
+function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; scale: number }) {
+  const shape = headShape(type)
+  const skull = useDisposable(
+    () => createSweptGeometry(shape.skull, shape.dims, 36, 26),
+    `skull-${type}`,
   )
-}
+  const jaw = useDisposable(
+    () => createSweptGeometry(shape.jaw, shape.jawDims, 32, 22),
+    `jaw-${type}`,
+  )
 
-function Teeth({ x, y, spread, count, size, palette }: {
-  x: number; y: number; spread: number; count: number; size: number; palette: DinoPalette
-}) {
+  const teeth = shape.toothRow
   return (
-    <>
-      {[-1, 1].map((side) => (
-        Array.from({ length: count }, (_, index) => (
+    <group scale={scale}>
+      <mesh geometry={skull}>
+        <Skin color={palette.base} />
+      </mesh>
+      <mesh geometry={jaw} position={[0.02, shape.jawDrop, 0]}>
+        <Skin color={palette.belly} />
+      </mesh>
+
+      {teeth && [-1, 1].map((side) => (
+        Array.from({ length: teeth.count }, (_, index) => (
           <mesh
             key={`${side}-${index}`}
-            position={[x - index * size * 1.5, y, side * spread]}
+            position={[teeth.from + index * teeth.size * 1.7, shape.jawDrop * 0.5, side * teeth.spread]}
             rotation={[0, 0, Math.PI]}
           >
-            <coneGeometry args={[size * 0.42, size * 1.5, 10]} />
+            <coneGeometry args={[teeth.size * 0.4, teeth.size * 1.5, 10]} />
             <Bone color={palette.bone} />
           </mesh>
         ))
       ))}
-    </>
-  )
-}
 
-function Head({ type, palette }: { type: HeadType; palette: DinoPalette }) {
-  const eyes = <><Eye side={-1} head={type} palette={palette} /><Eye side={1} head={type} palette={palette} /></>
+      {[-1, 1].map((side) => (
+        <mesh
+          key={side}
+          position={[shape.nostril.x, shape.nostril.y, side * shape.nostril.spread]}
+          scale={[0.6, 1, 1]}
+        >
+          <sphereGeometry args={[0.05, 14, 10]} />
+          <meshStandardMaterial color={palette.pupil} roughness={0.5} />
+        </mesh>
+      ))}
 
-  if (type === 'Triceratops') {
-    return (
-      <group>
-        <mesh position={[-0.28, 0.14, 0]} scale={[0.3, 1, 1.15]}>
-          <sphereGeometry args={[0.85, 40, 28]} />
-          <Skin color={palette.shade} />
-        </mesh>
-        <mesh position={[-0.21, 0.14, 0]} scale={[0.26, 0.88, 1.02]}>
-          <sphereGeometry args={[0.85, 36, 26]} />
-          <Skin color={palette.accent} />
-        </mesh>
-        <mesh scale={[0.95, 0.62, 0.78]}>
-          <sphereGeometry args={[0.82, 40, 28]} />
-          <Skin color={palette.base} />
-        </mesh>
-        <mesh position={[0.55, -0.12, 0]} scale={[0.55, 0.22, 0.62]}>
-          <sphereGeometry args={[0.8, 32, 22]} />
-          <Skin color={palette.belly} />
-        </mesh>
-        {[-0.45, 0.45].map((z) => (
-          <mesh key={z} position={[0.04, 0.66, z]} rotation={[0, 0, -0.25]}>
-            <coneGeometry args={[0.12, 0.68, 22]} />
-            <Bone color={palette.bone} />
-          </mesh>
-        ))}
-        <mesh position={[0.62, 0.35, 0]} rotation={[0, 0, -0.45]}>
-          <coneGeometry args={[0.1, 0.52, 22]} />
-          <Bone color={palette.bone} />
-        </mesh>
-        <Nostrils x={0.86} y={-0.02} spread={0.14} palette={palette} />
-        {eyes}
-      </group>
-    )
-  }
-
-  if (type === 'Brachiosaurus') {
-    return (
-      <group>
-        <mesh scale={[0.7, 0.58, 0.62]}>
-          <sphereGeometry args={[0.78, 40, 28]} />
-          <Skin color={palette.base} />
-        </mesh>
-        <mesh position={[-0.16, 0.34, 0]} scale={[0.34, 0.34, 0.42]}>
-          <sphereGeometry args={[0.78, 28, 20]} />
-          <Skin color={palette.accent} />
-        </mesh>
-        <mesh position={[0.48, -0.1, 0]} scale={[0.52, 0.2, 0.48]}>
-          <sphereGeometry args={[0.75, 32, 22]} />
-          <Skin color={palette.belly} />
-        </mesh>
-        <Nostrils x={0.6} y={0.16} spread={0.11} palette={palette} />
-        {eyes}
-      </group>
-    )
-  }
-
-  const isRex = type === 'T-Rex'
-  const isRaptor = type === 'Raptor'
-  const isCrested = type === 'Parasaurolophus'
-
-  return (
-    <group>
-      <mesh scale={isRex ? [1.05, 0.76, 0.76] : isRaptor ? [0.85, 0.62, 0.65] : [0.92, 0.66, 0.7]}>
-        <sphereGeometry args={[0.82, 40, 28]} />
-        <Skin color={palette.base} />
-      </mesh>
-      {/* Short and deep. The previous muzzle reached ~0.8 past the skull at a
-          fifth of its height, which read as a duck bill rather than a snout. */}
-      <mesh
-        position={[isRex ? 0.6 : 0.62, isRex ? -0.16 : -0.12, 0]}
-        scale={isRex ? [0.66, 0.42, 0.62] : [0.62, 0.34, 0.46]}
-      >
-        <sphereGeometry args={[0.72, 34, 24]} />
-        <Skin color={palette.belly} />
-      </mesh>
-      {isCrested && (
+      {type === 'Triceratops' && (
         <>
-          <mesh position={[-0.48, 0.54, 0]} rotation={[0, 0, -0.82]} scale={[0.32, 1, 0.38]}>
-            <coneGeometry args={[0.42, 1.35, 30]} />
+          <mesh position={[-shape.dims.halfLength * 0.62, 0.16, 0]} scale={[0.16, 1.15, 1.3]}>
+            <sphereGeometry args={[0.6, 30, 22]} />
+            <Skin color={palette.shade} />
+          </mesh>
+          <mesh position={[-shape.dims.halfLength * 0.54, 0.16, 0]} scale={[0.12, 1.0, 1.14]}>
+            <sphereGeometry args={[0.6, 28, 20]} />
             <Skin color={palette.accent} />
           </mesh>
-          <mesh position={[-0.62, 0.78, 0]} rotation={[0, 0, -0.82]} scale={[0.2, 0.62, 0.24]}>
-            <coneGeometry args={[0.42, 1.35, 26]} />
+          {[-0.3, 0.3].map((z) => (
+            <mesh key={z} position={[0.04, 0.42, z]} rotation={[0, 0, -0.3]}>
+              <coneGeometry args={[0.085, 0.5, 20]} />
+              <Bone color={palette.bone} />
+            </mesh>
+          ))}
+          <mesh position={[0.42, 0.12, 0]} rotation={[0, 0, -0.6]}>
+            <coneGeometry args={[0.07, 0.34, 20]} />
+            <Bone color={palette.bone} />
+          </mesh>
+        </>
+      )}
+
+      {type === 'Parasaurolophus' && (
+        <>
+          <mesh position={[-0.5, 0.42, 0]} rotation={[0, 0, -0.95]} scale={[0.34, 1, 0.4]}>
+            <coneGeometry args={[0.4, 1.3, 28]} />
+            <Skin color={palette.accent} />
+          </mesh>
+          <mesh position={[-0.66, 0.66, 0]} rotation={[0, 0, -0.95]} scale={[0.2, 0.6, 0.24]}>
+            <coneGeometry args={[0.4, 1.3, 24]} />
             <Skin color={palette.accentSoft} />
           </mesh>
         </>
       )}
-      {(isRex || isRaptor) && (
-        <Teeth
-          x={isRex ? 0.95 : 0.9}
-          y={isRex ? -0.34 : -0.26}
-          spread={isRex ? 0.3 : 0.22}
-          count={isRex ? 4 : 3}
-          size={isRex ? 0.13 : 0.1}
-          palette={palette}
-        />
+
+      {type === 'Brachiosaurus' && (
+        <mesh position={[-0.1, 0.24, 0]} scale={[0.4, 0.42, 0.5]}>
+          <sphereGeometry args={[0.5, 26, 18]} />
+          <Skin color={palette.accent} />
+        </mesh>
       )}
-      <Nostrils x={isRex ? 1.02 : 0.98} y={isRex ? -0.02 : 0.02} spread={0.12} palette={palette} />
-      {eyes}
+
+      <Eye side={-1} shape={shape} palette={palette} />
+      <Eye side={1} shape={shape} palette={palette} />
     </group>
   )
 }
@@ -357,105 +238,62 @@ function GroundLeg({ x, z, height, palette, foot }: {
   )
 }
 
-/**
- * Body shell with the pale underside baked into vertex colours.
- *
- * Overlaying a second, slightly larger ellipsoid also produces a belly, but the
- * two surfaces cut through each other and leave a hard crease all the way round.
- * Shading the one shell gives a soft gradient and one less mesh.
- */
-function Body({ bodySize, palette }: {
-  bodySize: readonly [number, number, number]; palette: DinoPalette
+/** Short forelimb, rooted on the chest wall so it cannot sink into the torso. */
+function Arm({ side, dims, long, palette }: {
+  side: number; dims: BodyDims; long: boolean; palette: DinoPalette
 }) {
-  const geometry = useMemo(() => {
-    const geo = new THREE.SphereGeometry(0.72, 64, 44)
-    const position = geo.attributes.position
-    const base = new THREE.Color(palette.base)
-    const belly = new THREE.Color(palette.belly)
-    const colors: number[] = []
-
-    for (let i = 0; i < position.count; i++) {
-      const height = position.getY(i) / 0.72
-      const blend = THREE.MathUtils.smoothstep(height, -0.62, 0.08)
-      const color = belly.clone().lerp(base, blend)
-      colors.push(color.r, color.g, color.b)
-    }
-
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-    return geo
-  }, [palette.base, palette.belly])
-
-  useEffect(() => () => geometry.dispose(), [geometry])
+  const slice = bodySliceAt(dims, 0.52)
+  const upper = long ? 0.62 : 0.38
+  const fore = long ? 0.5 : 0.3
 
   return (
-    <mesh geometry={geometry} scale={bodySize}>
-      <meshStandardMaterial vertexColors roughness={0.48} metalness={0} envMapIntensity={0.55} />
-    </mesh>
-  )
-}
-
-function SkinMarkings({ config, palette, bodySize }: {
-  config: DinosaurConfig; palette: DinoPalette; bodySize: readonly [number, number, number]
-}) {
-  if (config.skin === 'Plain') return null
-
-  if (config.skin === 'Spotted') {
-    const spots: Vec3[] = [
-      [-0.46, 0.52, 0.3], [-0.08, 0.62, -0.24], [0.3, 0.5, 0.32], [0.52, 0.24, -0.3], [-0.2, 0.3, 0.5],
-    ]
-    return (
-      <>
-        {spots.map((spot, index) => {
-          const position: Vec3 = [spot[0] * bodySize[0], spot[1] * bodySize[1], spot[2] * bodySize[2]]
-          const direction = new THREE.Vector3(...position).normalize()
-          return (
-            <mesh
-              key={index}
-              position={[
-                position[0] + direction.x * 0.02,
-                position[1] + direction.y * 0.02,
-                position[2] + direction.z * 0.02,
-              ]}
-              scale={[0.26, 0.26, 0.26]}
-            >
-              <sphereGeometry args={[0.72, 20, 14]} />
-              <Skin color={palette.accentSoft} />
-            </mesh>
-          )
-        })}
-      </>
-    )
-  }
-
-  return (
-    <>
-      {[-0.72, -0.34, 0.04, 0.42, 0.76].map((x) => (
-        <mesh
-          key={x}
-          position={[x * bodySize[0] * 0.9, 0, 0]}
-          rotation={[0, Math.PI / 2, 0]}
-          scale={[1, bodySize[1] * 0.71, bodySize[2] * 0.57]}
-        >
-          <torusGeometry args={[0.72, 0.075, 16, 40]} />
+    <group
+      position={[slice.x, slice.centerY + slice.radiusY * 0.12, side * slice.radiusZ * 1.02]}
+      // Negative, so each arm swings away from the flank. A positive X rotation
+      // sweeps the limb toward -z, which buried the far arm inside the torso.
+      rotation={[-side * 0.42, 0, long ? -0.5 : -0.85]}
+    >
+      <mesh position={[0, -upper * 0.5, 0]}>
+        <cylinderGeometry args={[0.14, 0.11, upper, 20]} />
+        <Skin color={palette.base} />
+      </mesh>
+      <mesh position={[0, -upper, 0]}>
+        <sphereGeometry args={[0.115, 18, 14]} />
+        <Skin color={palette.shade} />
+      </mesh>
+      <group position={[0, -upper, 0]} rotation={[0, 0, 0.75]}>
+        <mesh position={[0, -fore * 0.5, 0]}>
+          <cylinderGeometry args={[0.1, 0.075, fore, 18]} />
+          <Skin color={palette.base} />
+        </mesh>
+        <mesh position={[0, -fore, 0]} scale={[0.9, 0.7, 0.8]}>
+          <sphereGeometry args={[0.1, 18, 14]} />
           <Skin color={palette.shade} />
         </mesh>
-      ))}
-    </>
+        {[-0.05, 0.05].map((z) => (
+          <mesh key={z} position={[0.05, -fore - 0.06, z]} rotation={[0, 0, -2.5]}>
+            <coneGeometry args={[0.032, 0.16, 12]} />
+            <Bone color={palette.bone} />
+          </mesh>
+        ))}
+      </group>
+    </group>
   )
 }
 
-function BackFeature({ config, palette, bodySize }: {
-  config: DinosaurConfig; palette: DinoPalette; bodySize: readonly [number, number, number]
+function BackFeature({ config, palette, dims }: {
+  config: DinosaurConfig; palette: DinoPalette; dims: BodyDims
 }) {
   if (config.feature === 'None' || config.feature === 'Horns') return null
 
   if (config.feature === 'Wings') {
+    const slice = bodySliceAt(dims, 0.1)
     return (
       <>
         {[-1, 1].map((side) => (
           <group
             key={side}
-            position={[-0.12, 0.4, side * bodySize[2] * 0.54]}
+            position={[slice.x, slice.centerY + slice.radiusY * 0.45, side * slice.radiusZ * 0.86]}
             rotation={[side * 0.26, 0, side * -0.14]}
           >
             {[0, 0.34, 0.67].map((offset, index) => (
@@ -476,20 +314,16 @@ function BackFeature({ config, palette, bodySize }: {
   }
 
   const plates = config.feature === 'Plates'
-  const height = plates ? 0.74 : 0.66
+  const height = plates ? 0.78 : 0.6
   return (
     <>
-      {[-0.62, -0.24, 0.14, 0.5].map((u, index) => {
-        // Ride the ellipsoid's silhouette; a fixed height sinks the outer ones
-        // inside the body on larger builds.
-        const surface = bodySize[1] * 0.72 * Math.sqrt(Math.max(0, 1 - u * u))
+      {[-0.55, -0.24, 0.08, 0.4].map((u, index) => {
+        const slice = bodySliceAt(dims, u)
         return (
           <mesh
             key={u}
-            position={[u * bodySize[0] * 0.72, surface + height * 0.3, 0]}
-            // Cones point +Y by default. The old X rotation tipped them onto
-            // their sides, which read as paper darts rather than a spiny back.
-            scale={plates ? [1, 1, 0.28] : [1, 1, 1]}
+            position={[slice.x, slice.centerY + slice.radiusY + height * 0.3, 0]}
+            scale={plates ? [1, 1, 0.26] : [1, 1, 1]}
           >
             <coneGeometry args={[plates ? 0.42 : 0.17, height, plates ? 3 : 22]} />
             <Skin color={plates && index % 2 === 1 ? palette.accentSoft : palette.accent} />
@@ -507,23 +341,79 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
 
   const palette = useMemo(() => buildPalette(config.color), [config.color])
   const bodySize = BODY_SIZE[config.body]
+  const dims: BodyDims = useMemo(() => ({
+    halfLength: bodySize[0] * 0.82,
+    halfHeight: bodySize[1] * 0.72,
+    halfWidth: bodySize[1] * 0.62,
+  }), [bodySize])
+
   const hindHeight = LEG_HEIGHT[config.hindLegs]
   const biped = isBiped(config)
   const frontHeight = biped ? hindHeight : FRONT_HEIGHT[config.frontLimbs as keyof typeof FRONT_HEIGHT]
-  const tilt = biped ? -0.11 : Math.atan2(frontHeight - hindHeight, 1.5) * 0.65
-  const bodyY = hindHeight + bodySize[1] * 0.52
-  const tailLength = config.tail === 'Stubby Tail' ? 1.35 : config.tail === 'Giant Tail' ? 3.25 : 2.4
+  const tilt = biped ? -0.1 : Math.atan2(frontHeight - hindHeight, 1.6) * 0.6
+  // Ride the torso high enough that the hips clear the tops of the legs; too low
+  // and the body swallows a third of each leg, which reads as stumpy.
+  const bodyY = hindHeight + dims.halfHeight * 0.8
+  const tailLength = config.tail === 'Stubby Tail' ? 1.5 : config.tail === 'Giant Tail' ? 3.4 : 2.5
 
-  // Head sits off the front of the body, so it has to follow the body's size
-  // instead of a fixed offset — otherwise a Big body swallows its own neck.
+  const shape = headShape(config.head)
   const longNeck = config.head === 'Brachiosaurus'
+  // A fixed head on a scaling torso looked pin-headed on the Big build. Kids'
+  // toys also read better slightly large-headed, hence the 1.25.
+  const headScale = 1.25 * bodySize[1]
+  const skullHalf = shape.dims.halfLength * headScale
+  // Hind legs carry a biped under its centre of mass, further forward than the
+  // hips of a four-legged build.
+  const hipU = biped ? -0.3 : -0.55
+  const shoulder = bodySliceAt(dims, 0.82)
+  const hip = bodySliceAt(dims, hipU)
+  const tailBase = bodySliceAt(dims, -0.84)
+
   const headPos: Vec3 = longNeck
-    ? [bodySize[0] * 0.72 + 0.62, bodySize[1] * 0.6 + 1.15, 0]
-    : [bodySize[0] * 0.72 + 0.55, bodySize[1] * 0.55 + 0.45, 0]
-  const neckStart: Vec3 = [bodySize[0] * 0.34, bodySize[1] * 0.2, 0]
+    ? [dims.halfLength * 0.8 + skullHalf * 0.7, dims.halfHeight * 0.9 + 1.62, 0]
+    : [dims.halfLength * 0.86 + skullHalf * 0.72, dims.halfHeight * 0.95 + 0.44, 0]
+  const neckEnd: Vec3 = [headPos[0] - skullHalf * 0.68, headPos[1] - 0.04, 0]
+  const neckStart: Vec3 = [shoulder.x - dims.halfLength * 0.28, shoulder.centerY, 0]
   const neckControl: Vec3 = longNeck
-    ? [bodySize[0] * 0.55, headPos[1] * 0.72, 0]
-    : [bodySize[0] * 0.72 + 0.1, headPos[1] * 0.52, 0]
+    ? [shoulder.x + 0.1, headPos[1] * 0.66, 0]
+    : [shoulder.x + 0.42, headPos[1] * 0.6, 0]
+
+  const skinOptions: DinoSkinOptions = {
+    base: palette.base,
+    belly: palette.belly,
+    pattern: config.patternColor,
+    skin: config.skin,
+  }
+
+  const bodyGeometry = useDisposable(
+    () => createBodyGeometry(dims),
+    `body-${dims.halfLength}-${dims.halfHeight}-${dims.halfWidth}`,
+  )
+  const bodyMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
+
+  const neckGeometry = useDisposable(() => createTubeGeometry({
+    from: neckStart,
+    control: neckControl,
+    to: neckEnd,
+    startRadius: longNeck ? dims.halfHeight * 0.66 : dims.halfHeight * 0.8,
+    endRadius: (longNeck ? 0.2 : 0.3) * headScale,
+    falloff: 0.7,
+    segments: longNeck ? 36 : 26,
+  }), `neck-${config.head}-${dims.halfLength}-${dims.halfHeight}-${headScale}`)
+  const neckMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
+
+  const tailStartRadius = tailBase.radiusY * 1.02
+  const tailGeometry = useDisposable(() => createTubeGeometry({
+    from: [0, 0, 0],
+    control: [-tailLength * 0.5, tailLength * 0.13, 0],
+    to: [-tailLength, tailLength * 0.05, 0],
+    startRadius: tailStartRadius,
+    endRadius: 0.045,
+    falloff: 0.82,
+    flatten: 0.82,
+    segments: 36,
+  }), `tail-${tailLength}-${tailStartRadius}`)
+  const tailMaterial = useSkinMaterial(skinOptions, [tailBase.x, tailBase.centerY, 0])
 
   // Shadow flags are not inherited in three.js, so stamp every mesh once the
   // configuration changes rather than repeating the props on ~40 meshes.
@@ -549,93 +439,85 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
     }
   })
 
+  const legZ = hip.radiusZ * 0.95
+  const frontSlice = bodySliceAt(dims, 0.55)
+
   return (
     <group ref={root} position={[0, 0.04, 0]}>
       {[-1, 1].map((side) => (
-        <GroundLeg key={`hind-${side}`} x={-0.62} z={side * 0.56} height={hindHeight} palette={palette} foot={config.feet} />
+        <GroundLeg
+          key={`hind-${side}`}
+          x={hip.x}
+          z={side * legZ}
+          height={hindHeight}
+          palette={palette}
+          foot={config.feet}
+        />
       ))}
       {!biped && [-1, 1].map((side) => (
-        <GroundLeg key={`front-${side}`} x={0.72} z={side * 0.53} height={frontHeight} palette={palette} foot={config.feet} />
+        <GroundLeg
+          key={`front-${side}`}
+          x={frontSlice.x}
+          z={side * frontSlice.radiusZ * 0.95}
+          height={frontHeight}
+          palette={palette}
+          foot={config.feet}
+        />
       ))}
 
       <group position={[0, bodyY, 0]} rotation={[0, 0, tilt]}>
-        <Body bodySize={bodySize} palette={palette} />
-        <SkinMarkings config={config} palette={palette} bodySize={bodySize} />
-        <BackFeature config={config} palette={palette} bodySize={bodySize} />
+        <mesh geometry={bodyGeometry} material={bodyMaterial} />
+        <BackFeature config={config} palette={palette} dims={dims} />
 
-        {biped && [-1, 1].map((side) => {
-          const long = config.frontLimbs === 'Long Arms'
-          return (
-            <group
-              key={side}
-              position={[bodySize[0] * 0.46, 0.18, side * bodySize[2] * 0.5]}
-              rotation={[side * 0.16, 0, long ? -0.72 : -1.05]}
-            >
-              <mesh position={[0, -0.3, 0]} scale={[0.2, long ? 0.62 : 0.4, 0.2]}>
-                <cylinderGeometry args={[0.42, 0.34, 1.2, 24]} />
-                <Skin color={palette.base} />
-              </mesh>
-              <mesh position={[long ? 0.36 : 0.25, long ? -0.62 : -0.43, 0]} scale={[0.34, 0.16, 0.28]}>
-                <sphereGeometry args={[0.55, 28, 20]} />
-                <Skin color={palette.shade} />
-              </mesh>
-              {[-0.09, 0.09].map((z) => (
-                <mesh
-                  key={z}
-                  position={[long ? 0.52 : 0.38, long ? -0.68 : -0.48, z]}
-                  rotation={[0, 0, -1.9]}
-                >
-                  <coneGeometry args={[0.045, 0.2, 12]} />
-                  <Bone color={palette.bone} />
-                </mesh>
-              ))}
-            </group>
-          )
-        })}
+        {biped && [-1, 1].map((side) => (
+          <Arm
+            key={side}
+            side={side}
+            dims={dims}
+            long={config.frontLimbs === 'Long Arms'}
+            palette={palette}
+          />
+        ))}
 
         <group ref={neck}>
-          <TaperedLimb
-            from={neckStart}
-            control={neckControl}
-            to={headPos}
-            startRadius={longNeck ? 0.44 : 0.5}
-            endRadius={longNeck ? 0.22 : 0.3}
-            color={palette.base}
-            falloff={0.75}
-            segments={longNeck ? 34 : 24}
-          />
-          <group position={headPos}>
-            <Head type={config.head} palette={palette} />
-            {config.feature === 'Horns' && config.head !== 'Triceratops' && [-0.36, 0.36].map((z) => (
-              <mesh key={z} position={[-0.12, 0.7, z]} rotation={[0, 0, -0.2]}>
-                <coneGeometry args={[0.12, 0.64, 22]} />
+          <mesh geometry={neckGeometry} material={neckMaterial} />
+          <group position={headPos} rotation={[0, 0, -0.1]}>
+            <Head type={config.head} palette={palette} scale={headScale} />
+            {config.feature === 'Horns' && config.head !== 'Triceratops' && [-0.26, 0.26].map((z) => (
+              <mesh
+                key={z}
+                position={[-0.16 * headScale, shape.dims.halfHeight * 0.9 * headScale, z * headScale]}
+                rotation={[0, 0, -0.2]}
+                scale={headScale}
+              >
+                <coneGeometry args={[0.1, 0.56, 22]} />
                 <Bone color={palette.bone} />
               </mesh>
             ))}
           </group>
         </group>
 
-        <group ref={tail} position={[-bodySize[0] * 0.58, 0.05, 0]}>
-          <TaperedLimb
-            from={[0, 0, 0]}
-            control={[-tailLength * 0.5, 0.32, 0]}
-            to={[-tailLength, 0.12, 0]}
-            startRadius={0.48}
-            endRadius={0.045}
-            color={palette.base}
-            falloff={0.85}
-            segments={34}
-          />
-          {config.tail === 'Spiked Tail' && [0.3, 0.52, 0.72, 0.9].map((t, index) => {
-            const point = bezier([0, 0, 0], [-tailLength * 0.5, 0.32, 0], [-tailLength, 0.12, 0], t)
+        <group ref={tail} position={[tailBase.x, tailBase.centerY, 0]}>
+          <mesh geometry={tailGeometry} material={tailMaterial} />
+          {config.tail === 'Spiked Tail' && [0.28, 0.48, 0.67, 0.84].map((t) => {
+            const point = bezier(
+              [0, 0, 0],
+              [-tailLength * 0.5, tailLength * 0.13, 0],
+              [-tailLength, tailLength * 0.05, 0],
+              t,
+            )
+            const radius = tailStartRadius + (0.045 - tailStartRadius) * Math.pow(t, 0.82)
+            const size = 0.44 - t * 0.16
             return (
               <mesh
                 key={t}
-                position={[point[0], point[1] + 0.3 - index * 0.05, point[2]]}
-                rotation={[Math.PI / 2, 0, 0]}
+                // Spikes stand up off the spine. They previously carried an X
+                // rotation that laid them flat out to the sides.
+                position={[point[0], point[1] + radius * 0.75 + size * 0.32, 0]}
+                rotation={[0, 0, 0.32]}
               >
-                <coneGeometry args={[0.12, 0.52 - index * 0.06, 20]} />
-                <Skin color={index % 2 === 0 ? palette.accent : palette.accentSoft} />
+                <coneGeometry args={[size * 0.28, size, 20]} />
+                <Skin color={palette.accent} />
               </mesh>
             )
           })}

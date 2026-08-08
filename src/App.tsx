@@ -3,7 +3,7 @@ import { DinoScene } from './components/DinoScene'
 import { PartSelector } from './components/PartSelector'
 import { StatsPanel } from './components/StatsPanel'
 import { SaveDinoModal } from './components/SaveDinoModal'
-import { BODIES, COLORS, DEFAULT_DINO, FEATURES, FEET, FRONT_LIMBS, HEADS, HIND_LEGS, SKINS, TAILS, isBiped, type DinosaurConfig } from './game/dinosaurTypes'
+import { BODIES, COLORS, DEFAULT_DINO, FEATURES, FEET, FRONT_LIMBS, HEADS, HIND_LEGS, PATTERN_COLORS, PATTERN_COLOR_NAMES, SKINS, TAILS, isBiped, type DinosaurConfig } from './game/dinosaurTypes'
 import { loadDinosaur, saveDinosaur } from './game/storage'
 
 const pick = <T,>(options: readonly T[]) => options[Math.floor(Math.random() * options.length)]
@@ -18,6 +18,7 @@ export default function App() {
     ...current,
     head: pick(HEADS), body: pick(BODIES), frontLimbs: pick(FRONT_LIMBS), hindLegs: pick(HIND_LEGS),
     feet: pick(FEET), tail: pick(TAILS), feature: pick(FEATURES), color: pick(COLORS), skin: pick(SKINS),
+    patternColor: pick(PATTERN_COLORS),
   }))
 
   const save = () => {
@@ -50,6 +51,11 @@ export default function App() {
             <PartSelector label="SKIN" icon="🔵" value={dino.skin} options={SKINS} onChange={(value) => set('skin', value)} />
           </div>
           <div className="colors"><h2>🎨 DINO COLOR</h2><div>{COLORS.map((color, index) => <button key={color} aria-label={['Green', 'Blue', 'Purple', 'Orange', 'Yellow', 'Pink'][index]} className={dino.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => set('color', color)}>✓</button>)}</div></div>
+          <div className={`colors pattern${dino.skin === 'Plain' ? ' idle' : ''}`}>
+            <h2>🎨 COMPLEMENTARY COLOR</h2>
+            <div>{PATTERN_COLORS.map((color, index) => <button key={color} aria-label={PATTERN_COLOR_NAMES[index]} className={dino.patternColor === color ? 'selected' : ''} style={{ background: color }} onClick={() => set('patternColor', color)}>✓</button>)}</div>
+            <small>{dino.skin === 'Plain' ? 'Pick Spotted or Striped skin to use this' : `Colors your ${dino.skin === 'Spotted' ? 'spots' : 'stripes'}`}</small>
+          </div>
           <p className="limb-tip">💡 Choosing arms makes a two-legged dinosaur. Front legs make a four-legged dinosaur and change its body angle.</p>
           <div className="actions"><button className="random" onClick={randomize}>🎲 RANDOM DINO</button><button className="reset" onClick={() => setDino(DEFAULT_DINO)}>↻ RESET</button><button className="primary save" onClick={save}>💾 SAVE MY DINO</button></div>
         </section>
