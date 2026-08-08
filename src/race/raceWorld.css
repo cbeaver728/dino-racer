@@ -81,6 +81,19 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .picker-head strong, .leaderboard-head strong { font: 800 .9rem 'Baloo 2'; color: #285c51; letter-spacing: .4px; }
 .picker-head small { font-size: .61rem; color: #617970; }
 
+.track-picker { display: grid; gap: 6px; margin-bottom: 11px; }
+.track-picker button {
+  display: grid; grid-template-columns: 26px 1fr; grid-template-rows: auto auto; gap: 1px 8px;
+  padding: 8px 9px; text-align: left; color: #294f4d;
+  border: 2px solid #d7e4d9; border-radius: 13px; background: #f7faf2;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.track-picker button:hover { background: #e6f2df; transform: translateY(-1px); }
+.track-picker button.chosen { border-color: #4f9e65; background: #e4f4e6; }
+.track-picker span { grid-row: 1 / span 2; align-self: center; font-size: 1.4rem; }
+.track-picker strong { font-size: .8rem; }
+.track-picker small { font-size: .55rem; color: #647a70; line-height: 1.3; }
+
 .picker-empty { margin: 4px 2px; font-size: .72rem; line-height: 1.4; color: #46665e; }
 .picker-empty a { display: block; margin-top: 8px; padding: 8px; border-radius: 11px; background: #4f9e65; color: #fff; text-align: center; text-decoration: none; font-weight: 900; }
 

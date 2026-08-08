@@ -1,5 +1,5 @@
 import type { DinosaurConfig, SavedDinosaur } from '../game/dinosaurTypes'
-import { COURSE_CURVE, COURSE_LENGTH, START_T, terrainAt, toRaceProfile } from './course'
+import { toRaceProfile, type Course } from './course'
 import { evaluateTerrain } from './raceSimulation'
 import { STAR_BOOST } from './pickups'
 import { TERRAIN_ORDER, type RaceDinosaurProfile, type Terrain } from './raceTypes'
@@ -36,14 +36,14 @@ export interface RacerState {
   place: number | null
 }
 
-export function createRacers(entries: SavedDinosaur[]): RacerState[] {
+export function createRacers(entries: SavedDinosaur[], course: Course): RacerState[] {
   const count = Math.min(entries.length, MAX_RACERS)
   return entries.slice(0, count).map((entry, index) => {
     const profile = toRaceProfile(entry.config)
     const paces = {} as Record<Terrain, number>
     for (const terrain of TERRAIN_ORDER) paces[terrain] = evaluateTerrain(profile, terrain).pace
 
-    const start = COURSE_CURVE.getPointAt(START_T)
+    const start = course.curve.getPointAt(course.startT)
     return {
       id: entry.id,
       name: entry.config.name,
@@ -55,7 +55,7 @@ export function createRacers(entries: SavedDinosaur[]): RacerState[] {
       seed: index * 2.399963,
       progress: 0,
       speed: 0,
-      terrain: terrainAt(start.x, start.z),
+      terrain: course.terrainAt(start.x, start.z),
       boostUntil: 0,
       reverseUntil: 0,
       effect: null,
@@ -69,7 +69,7 @@ export function createRacers(entries: SavedDinosaur[]): RacerState[] {
  * Advances one racer. Terrain is sampled from where the racer actually is, so
  * the pace bonus always matches the ground being drawn under them.
  */
-export function stepRacer(racer: RacerState, delta: number, elapsed: number) {
+export function stepRacer(racer: RacerState, delta: number, elapsed: number, course: Course) {
   if (racer.finishedAt !== null) {
     racer.speed = 0
     racer.effect = null
@@ -80,9 +80,9 @@ export function stepRacer(racer: RacerState, delta: number, elapsed: number) {
     : elapsed < racer.boostUntil ? 'boost'
       : null
 
-  const t = START_T + racer.progress
-  const point = COURSE_CURVE.getPointAt(((t % 1) + 1) % 1)
-  racer.terrain = terrainAt(point.x, point.z)
+  const t = course.startT + racer.progress
+  const point = course.curve.getPointAt(((t % 1) + 1) % 1)
+  racer.terrain = course.terrainAt(point.x, point.z)
 
   // A slow surge unique to each racer so the field trades places on the way
   // round instead of settling into a fixed order in the first second.
@@ -93,7 +93,7 @@ export function stepRacer(racer: RacerState, delta: number, elapsed: number) {
   // A tornado sends them back down the track; never past the start line, so the
   // standings cannot read as a negative lap.
   const direction = elapsed < racer.reverseUntil ? -1 : 1
-  racer.progress = Math.max(0, racer.progress + (racer.speed * direction * delta) / COURSE_LENGTH)
+  racer.progress = Math.max(0, racer.progress + (racer.speed * direction * delta) / course.length)
 }
 
 /** Leader first; finishers are ranked by their finishing order. */

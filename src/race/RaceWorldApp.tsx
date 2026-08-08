@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { loadRoster } from '../game/storage'
 import { COURSE, DEMO_DINO, type Terrain } from './raceTypes'
-import { toRaceProfile } from './course'
+import { COURSES, toRaceProfile } from './course'
+import type { ChaseTarget } from './Racers'
 import { estimateRaceTime, evaluateTerrain } from './raceSimulation'
 import {
   MAX_RACERS,
@@ -30,16 +31,25 @@ export default function RaceWorldApp() {
   const [standings, setStandings] = useState<RacerState[]>([])
   const [finishers, setFinishers] = useState<RacerState[]>([])
   const [podiumOpen, setPodiumOpen] = useState(false)
-  const [followLeader, setFollowLeader] = useState(true)
   const [showInfo, setShowInfo] = useState(false)
   const [selectedTerrain, setSelectedTerrain] = useState<Terrain>('Marsh')
+  const [courseIndex, setCourseIndex] = useState(0)
+
+  /**
+   * Camera: free orbit, locked to the leader, or riding behind one racer. Held
+   * as the racer's id so it survives the field being rebuilt between races.
+   */
+  const [cameraMode, setCameraMode] = useState<'free' | 'leader' | string>('leader')
 
   const racers = useRef<RacerState[]>([])
   const podiumShown = useRef(false)
   const leader = useRef(new THREE.Vector3())
+  const chase = useRef<ChaseTarget>({ position: new THREE.Vector3(), heading: 0, active: false })
 
+  const course = COURSES[courseIndex]
   const racing = phase === 'racing'
   const started = phase !== 'setup'
+  const chasing = cameraMode !== 'free' && cameraMode !== 'leader'
 
   const toggle = (id: string) => setSelected((current) => {
     if (current.includes(id)) return current.filter((entry) => entry !== id)
@@ -47,10 +57,18 @@ export default function RaceWorldApp() {
     return [...current, id]
   })
 
+  /** free → leader → behind each racer in turn → back to free. */
+  const cycleCamera = () => setCameraMode((current) => {
+    const order = ['free', 'leader', ...racers.current.map((racer) => racer.id)]
+    const at = order.indexOf(current)
+    return order[(at + 1) % order.length]
+  })
+  const chasedName = racers.current.find((racer) => racer.id === cameraMode)?.name
+
   const startRace = () => {
     const entries = roster.filter((entry) => selected.includes(entry.id)).slice(0, MAX_RACERS)
     if (!entries.length) return
-    racers.current = createRacers(entries)
+    racers.current = createRacers(entries, course)
     podiumShown.current = false
     setStandings(standingsOf(racers.current))
     setFinishers([])
@@ -110,22 +128,30 @@ export default function RaceWorldApp() {
 
   return <main className="race-app">
     <div className="race-world">
-      <RaceWorld follow={followLeader && racing ? leader.current : null}>
+      <RaceWorld
+        key={course.def.id}
+        course={course}
+        follow={cameraMode === 'leader' && racing ? leader.current : null}
+        chase={chasing && started ? chase.current : null}
+      >
         {started && <Racers
           key={raceKey}
           racers={racers.current}
+          course={course}
           running={racing}
           onFinish={handleFinish}
           onSample={handleSample}
           leaderOut={leader.current}
+          chaseId={chasing ? cameraMode : null}
+          chaseOut={chase.current}
         />}
       </RaceWorld>
     </div>
 
     <header className="race-header">
       <a href="./" aria-label="Return to Dino Lab">🧪 DINO LAB</a>
-      <div><p>DINOSAUR RACING GROUNDS</p><h1>THE WILD CIRCUIT</h1></div>
-      <span>🏁</span>
+      <div><p>DINOSAUR RACING GROUNDS</p><h1>{course.def.name.toUpperCase()}</h1></div>
+      <span>{course.def.icon}</span>
     </header>
 
     <button className="course-info-toggle" type="button" aria-expanded={showInfo} onClick={() => setShowInfo((current) => !current)}>
@@ -146,6 +172,22 @@ export default function RaceWorldApp() {
     </section></>}
 
     {!started && <aside className="racer-picker" aria-label="Choose your racers">
+      <div className="picker-head">
+        <span>🗺️</span>
+        <div><strong>CHOOSE A TRACK</strong><small>{course.def.blurb}</small></div>
+      </div>
+      <div className="track-picker">{COURSES.map((option, index) => <button
+        key={option.def.id}
+        type="button"
+        className={index === courseIndex ? 'chosen' : ''}
+        aria-pressed={index === courseIndex}
+        onClick={() => setCourseIndex(index)}
+      >
+        <span>{option.def.icon}</span>
+        <strong>{option.def.name}</strong>
+        <small>{option.mix.map((entry) => `${entry.terrain} ${entry.share}%`).join(' · ')}</small>
+      </button>)}</div>
+
       <div className="picker-head">
         <span>🦖</span>
         <div><strong>PICK YOUR RACERS</strong><small>{roster.length ? `Up to ${MAX_RACERS} · ${selected.length} chosen` : 'Nothing in the stable yet'}</small></div>
@@ -211,11 +253,12 @@ export default function RaceWorldApp() {
       >🏁 START RACE</button>}
       {started && <button className="race-reset" type="button" onClick={resetRace}>↻ NEW RACE</button>}
       {started && <button
-        className={`race-follow${followLeader ? ' on' : ''}`}
+        className={`race-follow${cameraMode === 'free' ? '' : ' on'}`}
         type="button"
-        aria-pressed={followLeader}
-        onClick={() => setFollowLeader((value) => !value)}
-      >🎥 {followLeader ? 'Following leader' : 'Free camera'}</button>}
+        onClick={cycleCamera}
+      >🎥 {cameraMode === 'free' ? 'Free camera'
+        : cameraMode === 'leader' ? 'Following leader'
+          : `Behind ${chasedName ?? 'racer'}`}</button>}
       {finishers.length > 0 && !podiumOpen && <button className="race-results" type="button" onClick={() => setPodiumOpen(true)}>🏆 RESULTS</button>}
     </div>
 

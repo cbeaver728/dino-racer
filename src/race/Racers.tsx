@@ -2,7 +2,7 @@ import { useReducer, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Dinosaur } from '../components/Dinosaur'
-import { courseFrame, START_T, WORLD_LIFT, WORLD_SCALE } from './course'
+import { WORLD_LIFT, WORLD_SCALE, type Course } from './course'
 import { BASE_SPEED, LAP_COUNT, stepRacer, type RacerState } from './raceEngine'
 import { PickupModel } from './PickupModels'
 import {
@@ -21,14 +21,24 @@ import {
 /** Sized so a full grid of six fits across the road without clipping. */
 const DINO_SCALE = 0.34
 
-export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
+export interface ChaseTarget {
+  position: THREE.Vector3
+  heading: number
+  active: boolean
+}
+
+export function Racers({ racers, course, running, onFinish, onSample, leaderOut, chaseId, chaseOut }: {
   /** Mutated in place by the frame loop; remount the component to reset. */
   racers: RacerState[]
+  course: Course
   running: boolean
   onFinish: (racer: RacerState) => void
   onSample: () => void
   /** Receives the leader's world position for the follow camera. */
   leaderOut?: THREE.Vector3
+  /** Racer the chase camera should ride behind, if any. */
+  chaseId?: string | null
+  chaseOut?: ChaseTarget
 }) {
   const groups = useRef<(THREE.Group | null)[]>([])
   // Plain ref objects handed to each Dinosaur, so gait changes never re-render.
@@ -57,7 +67,7 @@ export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
 
       for (const racer of racers) {
         const wasRunning = racer.finishedAt === null
-        stepRacer(racer, delta, now)
+        stepRacer(racer, delta, now, course)
         if (wasRunning && racer.progress >= LAP_COUNT) {
           racer.progress = LAP_COUNT
           racer.finishedAt = now
@@ -91,7 +101,7 @@ export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
           let stars = 0
           for (const pickup of pickups.current) if (pickup.kind === 'star') stars++
           if (stars < MAX_LIVE_STARS) {
-            const at = (START_T + trailing) % 1
+            const at = (course.startT + trailing) % 1
             pickups.current = [...pickups.current, spawnAhead(nextId.current++, 'star', at, now)]
             changed = true
           }
@@ -99,7 +109,7 @@ export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
 
         if (tornadoesSent.current < TORNADO_COUNT && now >= tornadoTimes.current[tornadoesSent.current]) {
           tornadoesSent.current += 1
-          const at = (START_T + leading) % 1
+          const at = (course.startT + leading) % 1
           pickups.current = [...pickups.current, spawnAhead(nextId.current++, 'tornado', at, now)]
           changed = true
         }
@@ -109,9 +119,9 @@ export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
       // tornado never chains into an unrecoverable loop.
       for (const racer of racers) {
         if (racer.finishedAt !== null) continue
-        const racerT = (START_T + racer.progress) % 1
+        const racerT = (course.startT + racer.progress) % 1
         for (const pickup of pickups.current) {
-          if (pickup.taken || !hits(racerT, racer.lane, pickup)) continue
+          if (pickup.taken || !hits(racerT, racer.lane, pickup, course.length)) continue
           if (pickup.kind === 'star') {
             pickup.taken = true
             racer.boostUntil = now + STAR_BOOST_TIME
@@ -126,16 +136,20 @@ export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
     }
 
     let bestProgress = -1
+    if (chaseOut) chaseOut.active = false
+
     racers.forEach((racer, index) => {
-      const frame = courseFrame(START_T + racer.progress, racer.lane)
+      const frame = course.frameAt(course.startT + racer.progress, racer.lane)
+      // Turned around while reversing, with a quick spin-out on the way there.
+      const spinLeft = racer.reverseUntil - elapsed.current
+      const reversing = spinLeft > 0
+      const spinOut = Math.max(0, spinLeft - (REVERSE_TIME - SPIN_TIME))
+      const heading = frame.heading + (reversing ? Math.PI : 0) + spinOut * 21
+
       const group = groups.current[index]
       if (group) {
         group.position.copy(frame.position)
-        // Turned around while reversing, with a quick spin-out on the way there.
-        const spinLeft = racer.reverseUntil - elapsed.current
-        const reversing = spinLeft > 0
-        const spinOut = Math.max(0, spinLeft - (REVERSE_TIME - SPIN_TIME))
-        group.rotation.y = frame.heading + (reversing ? Math.PI : 0) + spinOut * 21
+        group.rotation.y = heading
       }
       gaits.current[index].current = racer.speed / BASE_SPEED
 
@@ -146,6 +160,18 @@ export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
           frame.position.y * WORLD_LIFT,
           frame.position.z * WORLD_SCALE,
         )
+      }
+
+      if (chaseOut && chaseId === racer.id) {
+        // The spin-out is deliberately left out of the chase heading; riding a
+        // camera through two full rotations is unwatchable.
+        chaseOut.position.set(
+          frame.position.x * WORLD_SCALE,
+          frame.position.y * WORLD_LIFT,
+          frame.position.z * WORLD_SCALE,
+        )
+        chaseOut.heading = frame.heading + (reversing ? Math.PI : 0)
+        chaseOut.active = true
       }
     })
 
@@ -167,7 +193,7 @@ export function Racers({ racers, running, onFinish, onSample, leaderOut }: {
       ))}
 
       {pickups.current.map((pickup) => {
-        const frame = courseFrame(pickup.t, pickup.lane)
+        const frame = course.frameAt(pickup.t, pickup.lane)
         return (
           <group key={pickup.id} position={[frame.position.x, frame.position.y, frame.position.z]}>
             <PickupModel pickup={pickup} />

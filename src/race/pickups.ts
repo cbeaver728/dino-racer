@@ -1,5 +1,3 @@
-import { COURSE_LENGTH } from './course'
-
 export type PickupKind = 'star' | 'tornado'
 
 export interface Pickup {
@@ -46,8 +44,8 @@ export function lapDelta(a: number, b: number) {
   return delta
 }
 
-export function hits(racerT: number, racerLane: number, pickup: Pickup) {
-  return Math.abs(lapDelta(racerT, pickup.t)) * COURSE_LENGTH < HIT_ARC
+export function hits(racerT: number, racerLane: number, pickup: Pickup, courseLength: number) {
+  return Math.abs(lapDelta(racerT, pickup.t)) * courseLength < HIT_ARC
     && Math.abs(racerLane - pickup.lane) < HIT_LANE
 }
 

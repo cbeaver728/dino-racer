@@ -3,7 +3,7 @@ import { DinoScene } from './components/DinoScene'
 import { PartSelector } from './components/PartSelector'
 import { StatsPanel } from './components/StatsPanel'
 import { SaveDinoModal } from './components/SaveDinoModal'
-import { BODIES, COLORS, DEFAULT_DINO, FEATURES, FEET, FRONT_LIMBS, HEADS, HIND_LEGS, PATTERN_COLORS, PATTERN_COLOR_NAMES, SKINS, TAILS, isBiped, type DinosaurConfig } from './game/dinosaurTypes'
+import { BODIES, COLORS, COLOR_NAMES, DEFAULT_DINO, FEATURES, FEET, FRONT_LIMBS, HEADS, HIND_LEGS, PATTERN_COLORS, PATTERN_COLOR_NAMES, SKINS, TAILS, isBiped, type DinosaurConfig } from './game/dinosaurTypes'
 import { deleteDinosaur, loadRoster, saveDinosaur } from './game/storage'
 import type { SavedDinosaur } from './game/dinosaurTypes'
 
@@ -90,7 +90,7 @@ export default function App() {
             <PartSelector label="EXTRA FEATURE" icon="✨" value={dino.feature} options={FEATURES} onChange={(value) => set('feature', value)} />
             <PartSelector label="SKIN" icon="🔵" value={dino.skin} options={SKINS} onChange={(value) => set('skin', value)} />
           </div>
-          <div className="colors"><h2>🎨 DINO COLOR</h2><div>{COLORS.map((color, index) => <button key={color} aria-label={['Green', 'Blue', 'Purple', 'Orange', 'Yellow', 'Pink'][index]} className={dino.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => set('color', color)}>✓</button>)}</div></div>
+          <div className="colors"><h2>🎨 DINO COLOR</h2><div>{COLORS.map((color, index) => <button key={color} aria-label={COLOR_NAMES[index]} className={dino.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => set('color', color)}>✓</button>)}</div></div>
           <div className={`colors pattern${trim.length ? '' : ' idle'}`}>
             <h2>🎨 COMPLEMENTARY COLOR</h2>
             <div>{PATTERN_COLORS.map((color, index) => <button key={color} aria-label={PATTERN_COLOR_NAMES[index]} className={dino.patternColor === color ? 'selected' : ''} style={{ background: color }} onClick={() => set('patternColor', color)}>✓</button>)}</div>

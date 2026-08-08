@@ -19,7 +19,8 @@ export const FEET = ['Round Feet', 'Clawed Feet', 'Webbed Feet'] as const
 export const TAILS = ['Stubby Tail', 'Long Tail', 'Giant Tail', 'Spiked Tail'] as const
 export const FEATURES = ['None', 'Horns', 'Plates', 'Back Spikes', 'Wings'] as const
 export const SKINS = ['Plain', 'Spotted', 'Striped'] as const
-export const COLORS = ['#66c95a', '#4da6ff', '#9b6ee8', '#f26b4b', '#f2c94c', '#f27db0'] as const
+export const COLORS = ['#66c95a', '#4da6ff', '#9b6ee8', '#f26b4b', '#f2c94c', '#f27db0', '#a9754a'] as const
+export const COLOR_NAMES = ['Green', 'Blue', 'Purple', 'Orange', 'Yellow', 'Pink', 'Brown'] as const
 
 /** Colour of the spots or stripes. Ignored when the skin is Plain. */
 export const PATTERN_COLORS = ['#fff3c4', '#2f4858', '#f2994a', '#e0518f', '#7b5ce0', '#1f9d6b'] as const
