@@ -186,8 +186,13 @@ export default function RaceWorldApp() {
         <b>{racer.place ? PLACE_MEDAL[racer.place - 1] : index + 1}</b>
         <i style={{ background: racer.config.color }} />
         <div>
-          <strong>{racer.name}</strong>
-          <small>{racer.place ? `Finished ${PLACE_LABEL[racer.place - 1]}` : racer.terrain}</small>
+          <strong>{racer.name}{racer.effect === 'boost' ? ' ⭐' : racer.effect === 'reverse' ? ' 🌪️' : ''}</strong>
+          <small className={racer.effect ?? undefined}>
+            {racer.place ? `Finished ${PLACE_LABEL[racer.place - 1]}`
+              : racer.effect === 'boost' ? 'Star boost!'
+                : racer.effect === 'reverse' ? 'Spun around!'
+                  : racer.terrain}
+          </small>
         </div>
         <em>{Math.round(Math.min(1, racer.progress) * 100)}%</em>
       </li>)}</ol>

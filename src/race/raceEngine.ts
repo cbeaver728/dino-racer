@@ -1,6 +1,7 @@
 import type { DinosaurConfig, SavedDinosaur } from '../game/dinosaurTypes'
 import { COURSE_CURVE, COURSE_LENGTH, START_T, terrainAt, toRaceProfile } from './course'
 import { evaluateTerrain } from './raceSimulation'
+import { STAR_BOOST } from './pickups'
 import { TERRAIN_ORDER, type RaceDinosaurProfile, type Terrain } from './raceTypes'
 
 /** One lap of the circuit. Long enough to feel like a race, short enough to watch. */
@@ -25,6 +26,12 @@ export interface RacerState {
   progress: number
   speed: number
   terrain: Terrain
+  /** Elapsed time a star boost runs until. */
+  boostUntil: number
+  /** Elapsed time this racer keeps running backwards until, after a tornado. */
+  reverseUntil: number
+  /** What the standings should show is happening to them right now. */
+  effect: 'boost' | 'reverse' | null
   finishedAt: number | null
   place: number | null
 }
@@ -49,6 +56,9 @@ export function createRacers(entries: SavedDinosaur[]): RacerState[] {
       progress: 0,
       speed: 0,
       terrain: terrainAt(start.x, start.z),
+      boostUntil: 0,
+      reverseUntil: 0,
+      effect: null,
       finishedAt: null,
       place: null,
     }
@@ -62,8 +72,13 @@ export function createRacers(entries: SavedDinosaur[]): RacerState[] {
 export function stepRacer(racer: RacerState, delta: number, elapsed: number) {
   if (racer.finishedAt !== null) {
     racer.speed = 0
+    racer.effect = null
     return
   }
+
+  racer.effect = elapsed < racer.reverseUntil ? 'reverse'
+    : elapsed < racer.boostUntil ? 'boost'
+      : null
 
   const t = START_T + racer.progress
   const point = COURSE_CURVE.getPointAt(((t % 1) + 1) % 1)
@@ -72,8 +87,13 @@ export function stepRacer(racer: RacerState, delta: number, elapsed: number) {
   // A slow surge unique to each racer so the field trades places on the way
   // round instead of settling into a fixed order in the first second.
   const surge = 1 + Math.sin(elapsed * 1.3 + racer.seed * 7) * 0.05
-  racer.speed = BASE_SPEED * racer.paces[racer.terrain] * surge
-  racer.progress += (racer.speed * delta) / COURSE_LENGTH
+  const boost = elapsed < racer.boostUntil ? STAR_BOOST : 1
+  racer.speed = BASE_SPEED * racer.paces[racer.terrain] * surge * boost
+
+  // A tornado sends them back down the track; never past the start line, so the
+  // standings cannot read as a negative lap.
+  const direction = elapsed < racer.reverseUntil ? -1 : 1
+  racer.progress = Math.max(0, racer.progress + (racer.speed * direction * delta) / COURSE_LENGTH)
 }
 
 /** Leader first; finishers are ranked by their finishing order. */

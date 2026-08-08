@@ -110,6 +110,8 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .leaderboard li strong { font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leaderboard li small { font-size: .55rem; color: #647a70; }
 .leaderboard li em { font-style: normal; font-size: .64rem; font-weight: 900; color: #4a7b62; }
+.leaderboard li small.boost { color: #b07d10; font-weight: 900; }
+.leaderboard li small.reverse { color: #a8564a; font-weight: 900; }
 
 .race-controls { position: absolute; z-index: 4; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
 .race-controls button { border: 0; border-radius: 14px; font-weight: 900; color: #fff; padding: 0 18px; min-height: 50px; box-shadow: 0 5px 0 #00000033; }
