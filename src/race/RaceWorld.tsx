@@ -5,6 +5,9 @@ import * as THREE from 'three'
 
 type Point = [number, number, number]
 
+// Expands the full circuit while preserving the approved composition.
+const WORLD_SCALE = 1.24
+
 const COURSE_POINTS: Point[] = [
   [-17, .12, -2], [-15, .12, -8], [-8, .12, -11], [2, .12, -11.5],
   [12, .12, -9], [17, .12, -3], [16, .12, 4], [11, .12, 9],
@@ -93,7 +96,7 @@ function Reed({ x, z }: { x: number; z: number }) {
 }
 
 function MarshBiome() {
-  const reeds = useMemo(() => Array.from({ length: 44 }, (_, index) => {
+  const reeds = useMemo(() => Array.from({ length: 56 }, (_, index) => {
     const x = -19 + seeded(index + 10) * 12
     const z = -9 + seeded(index + 80) * 11
     return { x, z }
@@ -102,7 +105,7 @@ function MarshBiome() {
     <GroundPatch position={[-13.5, -3.6]} scale={[7.4, 6.7]} color="#5b8763" />
     <mesh position={[-13.7, .015, -3.6]} scale={[6.2, 5.4, 1]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><circleGeometry args={[1, 64]} /><meshStandardMaterial color="#4c99a0" roughness={.24} metalness={.08} /></mesh>
     {reeds.map((reed, index) => <Reed key={index} {...reed} />)}
-    {Array.from({ length: 17 }, (_, index) => <group key={index} position={[-18 + seeded(index + 133) * 9, .045, -7 + seeded(index + 174) * 7]}>
+    {Array.from({ length: 22 }, (_, index) => <group key={index} position={[-18 + seeded(index + 133) * 9, .045, -7 + seeded(index + 174) * 7]}>
       <mesh rotation={[-Math.PI / 2, 0, index]}><circleGeometry args={[.21 + seeded(index) * .19, 14]} /><meshStandardMaterial color="#76a84e" /></mesh>
       {index % 4 === 0 && <mesh position={[.04, .1, 0]} scale={.07}><sphereGeometry args={[1, 10, 7]} /><meshStandardMaterial color="#f0a0bd" /></mesh>}
     </group>)}
@@ -117,7 +120,7 @@ function Mountain({ position, scale, color }: { position: Point; scale: number; 
 }
 
 function MountainBiome() {
-  const rocks = useMemo(() => Array.from({ length: 38 }, (_, index) => {
+  const rocks = useMemo(() => Array.from({ length: 49 }, (_, index) => {
     const x = -14 + seeded(index + 228) * 13
     const z = 4 + seeded(index + 278) * 9
     return { x, z, scale: .35 + seeded(index + 320) * .7 }
@@ -143,7 +146,7 @@ function Tree({ x, z, size, broadleaf }: { x: number; z: number; size: number; b
 }
 
 function ForestBiome() {
-  const trees = useMemo(() => Array.from({ length: 118 }, (_, index) => {
+  const trees = useMemo(() => Array.from({ length: 152 }, (_, index) => {
     const x = -.5 + seeded(index + 400) * 17
     const z = 3.5 + seeded(index + 530) * 10
     return { x, z, size: .48 + seeded(index + 680) * .62, broadleaf: index % 3 !== 0 }
@@ -151,7 +154,7 @@ function ForestBiome() {
   return <group>
     <GroundPatch position={[7.5, 8.2]} scale={[10.1, 6.4]} color="#477d43" />
     {trees.map((tree, index) => <Tree key={index} {...tree} />)}
-    {Array.from({ length: 28 }, (_, index) => {
+    {Array.from({ length: 38 }, (_, index) => {
       const x = seeded(index + 811) * 16
       const z = 4 + seeded(index + 860) * 9
       return distanceToRoad(x, z) > 2.1 ? <GrassTuft key={index} x={x} z={z} color="#8caf54" scale={.7} /> : null
@@ -160,7 +163,7 @@ function ForestBiome() {
 }
 
 function PlainsBiome() {
-  const grass = useMemo(() => Array.from({ length: 110 }, (_, index) => {
+  const grass = useMemo(() => Array.from({ length: 144 }, (_, index) => {
     const x = -2 + seeded(index + 900) * 22
     const z = -13 + seeded(index + 1040) * 11
     return { x, z, scale: .45 + seeded(index + 1170) * .7 }
@@ -168,7 +171,7 @@ function PlainsBiome() {
   return <group>
     <GroundPatch position={[8.5, -8]} scale={[13.4, 7]} color="#8cb85e" />
     {grass.map((item, index) => <GrassTuft key={index} {...item} color={index % 4 === 0 ? '#d0b75b' : '#6d9f4d'} />)}
-    {Array.from({ length: 16 }, (_, index) => <mesh key={index} position={[-1 + seeded(index + 1300) * 21, .08, -12 + seeded(index + 1340) * 10]} scale={.06 + seeded(index) * .04}>
+    {Array.from({ length: 22 }, (_, index) => <mesh key={index} position={[-1 + seeded(index + 1300) * 21, .08, -12 + seeded(index + 1340) * 10]} scale={.06 + seeded(index) * .04}>
       <sphereGeometry args={[1, 10, 7]} /><meshStandardMaterial color={index % 2 ? '#e78368' : '#f0cc5b'} />
     </mesh>)}
   </group>
@@ -186,15 +189,18 @@ function StartGate() {
 }
 
 function CourseCamera() {
-  return <OrbitControls makeDefault enableDamping dampingFactor={.08} enablePan minDistance={19} maxDistance={49} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
+  return <OrbitControls makeDefault enableDamping dampingFactor={.08} enablePan minDistance={22} maxDistance={58} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
 }
 
 export function RaceWorld() {
-  return <Canvas shadows camera={{ position: [25, 27, 31], fov: 39 }} dpr={[1, 1.6]}>
-    <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 42, 74]} />
-    <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-16, 26, 12]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-28} shadow-camera-right={28} shadow-camera-top={28} shadow-camera-bottom={-28} />
-    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[76, 68]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
-    <PlainsBiome /><MarshBiome /><MountainBiome /><ForestBiome />
-    <RaceRoad /><StartGate /><CourseCamera />
+  return <Canvas shadows camera={{ position: [29, 31, 36], fov: 39 }} dpr={[1, 1.6]}>
+    <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 60, 102]} />
+    <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-19, 29, 15]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-35} shadow-camera-right={35} shadow-camera-top={35} shadow-camera-bottom={-35} />
+    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[92, 84]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
+    <group scale={[WORLD_SCALE, 1.04, WORLD_SCALE]}>
+      <PlainsBiome /><MarshBiome /><MountainBiome /><ForestBiome />
+      <RaceRoad /><StartGate />
+    </group>
+    <CourseCamera />
   </Canvas>
 }
