@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+﻿import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { isBiped, type DinosaurConfig, type FootType, type HeadType } from '../game/dinosaurTypes'
@@ -9,6 +9,7 @@ import {
   createBodyGeometry,
   createSweptGeometry,
   createTubeGeometry,
+  profileSliceAt,
   bezier,
   type BodyDims,
   type Vec3,
@@ -21,11 +22,13 @@ const BODY_SIZE = {
   Big: [1.9, 1.2, 2.3],
 } as const
 
-const LEG_HEIGHT = { Short: 0.75, Normal: 1.05, Long: 1.4 } as const
+// Wide spread on purpose: at 0.75/1.05/1.4 the three choices were nearly
+// indistinguishable, so picking legs felt like it did nothing.
+const LEG_HEIGHT = { Short: 0.5, Normal: 1.05, Long: 1.85 } as const
 const FRONT_HEIGHT = {
-  'Short Front Legs': 0.75,
+  'Short Front Legs': 0.5,
   'Normal Front Legs': 1.05,
-  'Long Front Legs': 1.4,
+  'Long Front Legs': 1.85,
 } as const
 
 const Skin = ({ color }: { color: string }) => (
@@ -106,16 +109,27 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
       </mesh>
 
       {teeth && [-1, 1].map((side) => (
-        Array.from({ length: teeth.count }, (_, index) => (
-          <mesh
-            key={`${side}-${index}`}
-            position={[teeth.from + index * teeth.size * 1.7, shape.jawDrop * 0.5, side * teeth.spread]}
-            rotation={[0, 0, Math.PI]}
-          >
-            <coneGeometry args={[teeth.size * 0.4, teeth.size * 1.5, 10]} />
-            <Bone color={palette.bone} />
-          </mesh>
-        ))
+        Array.from({ length: teeth.count }, (_, index) => {
+          // Hang from the skull's lower edge along the mouth line, following it
+          // as the snout narrows. A fixed spread left the front teeth outside
+          // the snout on the T-Rex.
+          const x = teeth.from + index * teeth.size * 1.7
+          const slice = profileSliceAt(shape.skull, shape.dims, x / shape.dims.halfLength)
+          return (
+            <mesh
+              key={`${side}-${index}`}
+              position={[
+                x,
+                slice.centerY - slice.radiusY * 0.62,
+                side * slice.radiusZ * 0.72,
+              ]}
+              rotation={[0, 0, Math.PI]}
+            >
+              <coneGeometry args={[teeth.size * 0.4, teeth.size * 1.5, 10]} />
+              <Bone color={palette.bone} />
+            </mesh>
+          )
+        })
       ))}
 
       {[-1, 1].map((side) => (
@@ -137,7 +151,7 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
           </mesh>
           <mesh position={[-shape.dims.halfLength * 0.54, 0.16, 0]} scale={[0.12, 1.0, 1.14]}>
             <sphereGeometry args={[0.6, 28, 20]} />
-            <Skin color={palette.accent} />
+            <Skin color={palette.pattern} />
           </mesh>
           {[-0.3, 0.3].map((z) => (
             <mesh key={z} position={[0.04, 0.42, z]} rotation={[0, 0, -0.3]}>
@@ -156,11 +170,11 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
         <>
           <mesh position={[-0.5, 0.42, 0]} rotation={[0, 0, -0.95]} scale={[0.34, 1, 0.4]}>
             <coneGeometry args={[0.4, 1.3, 28]} />
-            <Skin color={palette.accent} />
+            <Skin color={palette.pattern} />
           </mesh>
           <mesh position={[-0.66, 0.66, 0]} rotation={[0, 0, -0.95]} scale={[0.2, 0.6, 0.24]}>
             <coneGeometry args={[0.4, 1.3, 24]} />
-            <Skin color={palette.accentSoft} />
+            <Skin color={palette.patternSoft} />
           </mesh>
         </>
       )}
@@ -168,7 +182,7 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
       {type === 'Brachiosaurus' && (
         <mesh position={[-0.1, 0.24, 0]} scale={[0.4, 0.42, 0.5]}>
           <sphereGeometry args={[0.5, 26, 18]} />
-          <Skin color={palette.accent} />
+          <Skin color={palette.pattern} />
         </mesh>
       )}
 
@@ -206,7 +220,7 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
             <mesh key={z} position={[0.31, 0.065, z]} scale={[0.45, 0.05, 0.25]}>
               <sphereGeometry args={[0.72, 24, 16]} />
               <meshStandardMaterial
-                color={palette.accentSoft}
+                color={palette.patternSoft}
                 transparent
                 opacity={0.85}
                 roughness={0.35}
@@ -304,7 +318,7 @@ function BackFeature({ config, palette, dims }: {
                 scale={[1.15 - index * 0.15, 0.16, 0.48]}
               >
                 <sphereGeometry args={[0.78, 32, 22]} />
-                <Skin color={index === 0 ? palette.shade : index === 1 ? palette.accent : palette.accentSoft} />
+                <Skin color={index === 2 ? palette.patternSoft : palette.pattern} />
               </mesh>
             ))}
           </group>
@@ -326,7 +340,7 @@ function BackFeature({ config, palette, dims }: {
             scale={plates ? [1, 1, 0.26] : [1, 1, 1]}
           >
             <coneGeometry args={[plates ? 0.42 : 0.17, height, plates ? 3 : 22]} />
-            <Skin color={plates && index % 2 === 1 ? palette.accentSoft : palette.accent} />
+            <Skin color={plates && index % 2 === 1 ? palette.patternSoft : palette.pattern} />
           </mesh>
         )
       })}
@@ -339,7 +353,10 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
   const tail = useRef<THREE.Group>(null)
   const neck = useRef<THREE.Group>(null)
 
-  const palette = useMemo(() => buildPalette(config.color), [config.color])
+  const palette = useMemo(
+    () => buildPalette(config.color, config.patternColor),
+    [config.color, config.patternColor],
+  )
   const bodySize = BODY_SIZE[config.body]
   const dims: BodyDims = useMemo(() => ({
     halfLength: bodySize[0] * 0.82,
@@ -350,10 +367,6 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
   const hindHeight = LEG_HEIGHT[config.hindLegs]
   const biped = isBiped(config)
   const frontHeight = biped ? hindHeight : FRONT_HEIGHT[config.frontLimbs as keyof typeof FRONT_HEIGHT]
-  const tilt = biped ? -0.1 : Math.atan2(frontHeight - hindHeight, 1.6) * 0.6
-  // Ride the torso high enough that the hips clear the tops of the legs; too low
-  // and the body swallows a third of each leg, which reads as stumpy.
-  const bodyY = hindHeight + dims.halfHeight * 0.8
   const tailLength = config.tail === 'Stubby Tail' ? 1.5 : config.tail === 'Giant Tail' ? 3.4 : 2.5
 
   const shape = headShape(config.head)
@@ -368,6 +381,34 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
   const shoulder = bodySliceAt(dims, 0.82)
   const hip = bodySliceAt(dims, hipU)
   const tailBase = bodySliceAt(dims, -0.84)
+  const frontSlice = bodySliceAt(dims, 0.55)
+
+  /**
+   * Sit the torso on its legs rather than at a height derived from the hind
+   * legs alone. Solving the tilt from where the two sockets actually are keeps
+   * the body attached however far apart the leg lengths get; deriving it from
+   * hindHeight only left the body floating once the range widened.
+   */
+  // Near the underside, not mid-torso: the socket height is what gets planted on
+  // the leg tops, so a socket inside the body sinks the whole animal onto them.
+  const hipSocket = { x: hip.x, y: hip.centerY - hip.radiusY * 0.95 }
+  const frontSocket = { x: frontSlice.x, y: frontSlice.centerY - frontSlice.radiusY * 0.95 }
+  const spanX = frontSocket.x - hipSocket.x
+  const spanY = frontSocket.y - hipSocket.y
+  const reach = Math.hypot(spanX, spanY)
+  // Solve spanX*sin+spanY*cos = rise for the angle that lands both sockets.
+  const tilt = biped
+    ? -0.1
+    : Math.asin(THREE.MathUtils.clamp((frontHeight - hindHeight) / reach, -1, 1))
+      - Math.atan2(spanY, spanX)
+
+  const spin = (point: { x: number; y: number }) => ({
+    x: point.x * Math.cos(tilt) - point.y * Math.sin(tilt),
+    y: point.x * Math.sin(tilt) + point.y * Math.cos(tilt),
+  })
+  const hipWorld = spin(hipSocket)
+  const frontWorld = spin(frontSocket)
+  const bodyY = hindHeight - 0.1 - hipWorld.y
 
   const headPos: Vec3 = longNeck
     ? [dims.halfLength * 0.8 + skullHalf * 0.7, dims.halfHeight * 0.9 + 1.62, 0]
@@ -440,14 +481,13 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
   })
 
   const legZ = hip.radiusZ * 0.95
-  const frontSlice = bodySliceAt(dims, 0.55)
 
   return (
     <group ref={root} position={[0, 0.04, 0]}>
       {[-1, 1].map((side) => (
         <GroundLeg
           key={`hind-${side}`}
-          x={hip.x}
+          x={hipWorld.x}
           z={side * legZ}
           height={hindHeight}
           palette={palette}
@@ -457,7 +497,7 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
       {!biped && [-1, 1].map((side) => (
         <GroundLeg
           key={`front-${side}`}
-          x={frontSlice.x}
+          x={frontWorld.x}
           z={side * frontSlice.radiusZ * 0.95}
           height={frontHeight}
           palette={palette}
@@ -483,17 +523,27 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
           <mesh geometry={neckGeometry} material={neckMaterial} />
           <group position={headPos} rotation={[0, 0, -0.1]}>
             <Head type={config.head} palette={palette} scale={headScale} />
-            {config.feature === 'Horns' && config.head !== 'Triceratops' && [-0.26, 0.26].map((z) => (
-              <mesh
-                key={z}
-                position={[-0.16 * headScale, shape.dims.halfHeight * 0.9 * headScale, z * headScale]}
-                rotation={[0, 0, -0.2]}
-                scale={headScale}
-              >
-                <coneGeometry args={[0.1, 0.56, 22]} />
-                <Bone color={palette.bone} />
-              </mesh>
-            ))}
+            {config.feature === 'Horns' && config.head !== 'Triceratops' && (() => {
+              // Anchor on the skull's own surface at its horn station. Fixed
+              // coordinates buried these, or crossed the Parasaurolophus crest.
+              const slice = profileSliceAt(shape.skull, shape.dims, shape.hornU)
+              const height = 0.5
+              return [-1, 1].map((side) => (
+                <mesh
+                  key={side}
+                  position={[
+                    slice.x * headScale,
+                    (slice.centerY + slice.radiusY * 0.82 + height * 0.34) * headScale,
+                    side * slice.radiusZ * 0.52 * headScale,
+                  ]}
+                  rotation={[side * -0.24, 0, -0.16]}
+                  scale={headScale}
+                >
+                  <coneGeometry args={[0.09, height, 22]} />
+                  <Bone color={palette.bone} />
+                </mesh>
+              ))
+            })()}
           </group>
         </group>
 
@@ -517,7 +567,7 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
                 rotation={[0, 0, 0.32]}
               >
                 <coneGeometry args={[size * 0.28, size, 20]} />
-                <Skin color={palette.accent} />
+                <Skin color={palette.pattern} />
               </mesh>
             )
           })}

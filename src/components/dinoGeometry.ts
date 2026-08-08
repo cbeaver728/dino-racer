@@ -46,16 +46,23 @@ export interface BodySlice {
   radiusZ: number
 }
 
-/** Torso cross-section at u in -1 (tail) .. +1 (shoulders). */
-export function bodySliceAt(dims: BodyDims, u: number): BodySlice {
+/**
+ * Cross-section of any swept part at u in -1 .. +1. Attachments read this so
+ * they land on the real surface: teeth follow the jaw as it narrows, horns sit
+ * on the skull, limbs root on the flank.
+ */
+export function profileSliceAt(profile: SweptProfile, dims: BodyDims, u: number): BodySlice {
   const t = (THREE.MathUtils.clamp(u, -1, 1) + 1) / 2
   return {
     x: u * dims.halfLength,
-    centerY: sampleCurve(SPINE_RISE, t) * dims.halfHeight,
-    radiusY: sampleCurve(RIB_HEIGHT, t) * dims.halfHeight,
-    radiusZ: sampleCurve(RIB_WIDTH, t) * dims.halfWidth,
+    centerY: sampleCurve(profile.rise, t) * dims.halfHeight,
+    radiusY: sampleCurve(profile.height, t) * dims.halfHeight,
+    radiusZ: sampleCurve(profile.width, t) * dims.halfWidth,
   }
 }
+
+/** Torso cross-section at u in -1 (tail) .. +1 (shoulders). */
+export const bodySliceAt = (dims: BodyDims, u: number) => profileSliceAt(BODY_PROFILE, dims, u)
 
 export interface SweptProfile {
   /** Vertical radius per station, as a fraction of halfHeight. */
@@ -86,15 +93,7 @@ export function createSweptGeometry(
   const positions: number[] = []
   const indices: number[] = []
 
-  const sliceAt = (u: number) => {
-    const t = (THREE.MathUtils.clamp(u, -1, 1) + 1) / 2
-    return {
-      x: u * dims.halfLength,
-      centerY: sampleCurve(profile.rise, t) * dims.halfHeight,
-      radiusY: sampleCurve(profile.height, t) * dims.halfHeight,
-      radiusZ: sampleCurve(profile.width, t) * dims.halfWidth,
-    }
-  }
+  const sliceAt = (u: number) => profileSliceAt(profile, dims, u)
 
   for (let i = 0; i <= segments; i++) {
     const slice = sliceAt((i / segments) * 2 - 1)

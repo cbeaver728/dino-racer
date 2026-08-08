@@ -20,6 +20,8 @@ export interface HeadShape {
   toothRow: { from: number; spread: number; count: number; size: number } | null
   nostril: { x: number; y: number; spread: number }
   eye: { x: number; y: number; depth: number; size: number }
+  /** Where the optional Horns feature sits along the skull, in -1..+1. */
+  hornU: number
 }
 
 const HEADS: Record<HeadType, HeadShape> = {
@@ -35,11 +37,13 @@ const HEADS: Record<HeadType, HeadShape> = {
       rise: [0.0, 0.0, -0.02, -0.05, -0.08, -0.12, -0.16, -0.2, -0.24, -0.28],
     },
     dims: { halfLength: 0.72, halfHeight: 0.34, halfWidth: 0.3 },
-    jawDims: { halfLength: 0.68, halfHeight: 0.34, halfWidth: 0.28 },
-    jawDrop: -0.2,
-    toothRow: { from: 0.1, spread: 0.2, count: 4, size: 0.075 },
+    // Narrower than the skull so the tooth row has somewhere to show.
+    jawDims: { halfLength: 0.68, halfHeight: 0.34, halfWidth: 0.22 },
+    jawDrop: -0.24,
+    toothRow: { from: 0.02, spread: 0.2, count: 5, size: 0.075 },
     nostril: { x: 0.6, y: 0.02, spread: 0.09 },
     eye: { x: -0.16, y: 0.14, depth: 0.27, size: 0.14 },
+    hornU: -0.1,
   },
 
   'T-Rex': {
@@ -54,11 +58,13 @@ const HEADS: Record<HeadType, HeadShape> = {
       rise: [0.0, -0.01, -0.03, -0.06, -0.09, -0.12, -0.15, -0.18, -0.22, -0.26],
     },
     dims: { halfLength: 0.86, halfHeight: 0.44, halfWidth: 0.38 },
-    jawDims: { halfLength: 0.82, halfHeight: 0.44, halfWidth: 0.36 },
-    jawDrop: -0.24,
-    toothRow: { from: 0.16, spread: 0.27, count: 5, size: 0.1 },
+    // Narrower than the skull so the tooth row has somewhere to show.
+    jawDims: { halfLength: 0.82, halfHeight: 0.44, halfWidth: 0.29 },
+    jawDrop: -0.3,
+    toothRow: { from: 0.04, spread: 0.27, count: 6, size: 0.1 },
     nostril: { x: 0.7, y: 0.04, spread: 0.12 },
     eye: { x: -0.2, y: 0.2, depth: 0.34, size: 0.16 },
+    hornU: -0.14,
   },
 
   Triceratops: {
@@ -78,6 +84,7 @@ const HEADS: Record<HeadType, HeadShape> = {
     toothRow: null,
     nostril: { x: 0.5, y: -0.1, spread: 0.1 },
     eye: { x: -0.12, y: 0.16, depth: 0.34, size: 0.14 },
+    hornU: 0.0,
   },
 
   Brachiosaurus: {
@@ -97,6 +104,7 @@ const HEADS: Record<HeadType, HeadShape> = {
     toothRow: null,
     nostril: { x: 0.34, y: 0.16, spread: 0.09 },
     eye: { x: -0.1, y: 0.12, depth: 0.25, size: 0.13 },
+    hornU: -0.06,
   },
 
   Parasaurolophus: {
@@ -116,6 +124,8 @@ const HEADS: Record<HeadType, HeadShape> = {
     toothRow: null,
     nostril: { x: 0.66, y: -0.04, spread: 0.1 },
     eye: { x: -0.14, y: 0.14, depth: 0.27, size: 0.14 },
+    // Forward of the swept-back crest, which owns the top of this skull.
+    hornU: 0.3,
   },
 }
 

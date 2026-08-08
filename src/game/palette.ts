@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { DinoColor } from './dinosaurTypes'
+import type { DinoColor, PatternColor } from './dinosaurTypes'
 
 /**
  * Every dinosaur is drawn from a small palette derived from the one colour the
@@ -14,10 +14,14 @@ export interface DinoPalette {
   belly: string
   /** Deeper version of the base for the back, tail ridge and limb shading. */
   shade: string
-  /** Contrasting colour for crests, plates, spikes and wing membranes. */
-  accent: string
-  /** Softer partner to the accent, for the second half of a gradient. */
-  accentSoft: string
+  /**
+   * The player's complementary colour, used for every trim on the animal:
+   * crests, frills, plates, spikes and wing membranes, alongside the spots and
+   * stripes. Picking one colour keeps all the trim on a dinosaur matching.
+   */
+  pattern: string
+  /** Lighter partner to the pattern colour, for alternating plates. */
+  patternSoft: string
   /** Warm off-white for claws, horns, teeth and beaks. */
   bone: string
   /** Eye white. */
@@ -46,20 +50,16 @@ const shift = (
   ).getStyle()
 }
 
-export function buildPalette(color: DinoColor): DinoPalette {
+export function buildPalette(color: DinoColor, patternColor: PatternColor): DinoPalette {
   const base = new THREE.Color(color)
-  const { h } = hsl(base)
-
-  // Complementary hue, pulled toward warm yellow so it stays cheerful rather
-  // than clashing. A green dino gets a coral crest, a blue one gets gold.
-  const accentHue = (h + 0.47) % 1
+  const pattern = new THREE.Color(patternColor)
 
   return {
     base: base.getStyle(),
     belly: shift(base, { hue: 0.02, sat: 0.5, light: 1.42 }),
     shade: shift(base, { sat: 1.12, light: 0.7 }),
-    accent: new THREE.Color().setHSL(accentHue, 0.82, 0.62).getStyle(),
-    accentSoft: new THREE.Color().setHSL(accentHue, 0.7, 0.76).getStyle(),
+    pattern: pattern.getStyle(),
+    patternSoft: shift(pattern, { sat: 0.78, light: 1.3 }),
     bone: '#fdf3dc',
     sclera: '#fffdf6',
     pupil: '#1b2a3d',

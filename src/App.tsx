@@ -27,6 +27,24 @@ export default function App() {
   }
 
   const biped = isBiped(dino)
+
+  // The complementary colour paints every piece of trim, so tell the player
+  // exactly what it is doing on the build they have right now.
+  const trim = [
+    dino.skin === 'Spotted' && 'spots',
+    dino.skin === 'Striped' && 'stripes',
+    dino.head === 'Triceratops' && 'frill',
+    dino.head === 'Parasaurolophus' && 'crest',
+    dino.head === 'Brachiosaurus' && 'head crest',
+    dino.feature === 'Wings' && 'wings',
+    dino.feature === 'Plates' && 'plates',
+    dino.feature === 'Back Spikes' && 'back spikes',
+    dino.tail === 'Spiked Tail' && 'tail spikes',
+  ].filter(Boolean) as string[]
+  const trimText = trim.length > 1
+    ? `${trim.slice(0, -1).join(', ')} and ${trim[trim.length - 1]}`
+    : trim[0]
+
   return (
     <main>
       <header><span>🧪</span><div><h1>DINO LAB</h1><p>Build your own dinosaur!</p></div><span>🥚</span></header>
@@ -51,10 +69,10 @@ export default function App() {
             <PartSelector label="SKIN" icon="🔵" value={dino.skin} options={SKINS} onChange={(value) => set('skin', value)} />
           </div>
           <div className="colors"><h2>🎨 DINO COLOR</h2><div>{COLORS.map((color, index) => <button key={color} aria-label={['Green', 'Blue', 'Purple', 'Orange', 'Yellow', 'Pink'][index]} className={dino.color === color ? 'selected' : ''} style={{ background: color }} onClick={() => set('color', color)}>✓</button>)}</div></div>
-          <div className={`colors pattern${dino.skin === 'Plain' ? ' idle' : ''}`}>
+          <div className={`colors pattern${trim.length ? '' : ' idle'}`}>
             <h2>🎨 COMPLEMENTARY COLOR</h2>
             <div>{PATTERN_COLORS.map((color, index) => <button key={color} aria-label={PATTERN_COLOR_NAMES[index]} className={dino.patternColor === color ? 'selected' : ''} style={{ background: color }} onClick={() => set('patternColor', color)}>✓</button>)}</div>
-            <small>{dino.skin === 'Plain' ? 'Pick Spotted or Striped skin to use this' : `Colors your ${dino.skin === 'Spotted' ? 'spots' : 'stripes'}`}</small>
+            <small>{trim.length ? `Colors your ${trimText}` : 'Add spots, stripes, spikes, a crest or wings to use this'}</small>
           </div>
           <p className="limb-tip">💡 Choosing arms makes a two-legged dinosaur. Front legs make a four-legged dinosaur and change its body angle.</p>
           <div className="actions"><button className="random" onClick={randomize}>🎲 RANDOM DINO</button><button className="reset" onClick={() => setDino(DEFAULT_DINO)}>↻ RESET</button><button className="primary save" onClick={save}>💾 SAVE MY DINO</button></div>
