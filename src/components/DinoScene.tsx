@@ -13,7 +13,7 @@ export function DinoScene({ config }: { config: DinosaurConfig }) {
           a second time and every shader on the page failed to compile. */}
       <Canvas
         shadows="soft"
-        camera={{ position: [6.4, 3.7, 7.2], fov: 38 }}
+        camera={{ position: [7.4, 4.2, 8.4], fov: 41 }}
         dpr={[1, 1.6]}
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
@@ -51,11 +51,11 @@ export function DinoScene({ config }: { config: DinosaurConfig }) {
 
         <OrbitControls
           enablePan={false}
-          minDistance={7.5}
-          maxDistance={10}
+          minDistance={8.7}
+          maxDistance={12.5}
           minPolarAngle={Math.PI / 3.4}
           maxPolarAngle={Math.PI / 2.12}
-          target={[0, 1.35, 0]}
+          target={[0, 1.55, 0]}
         />
       </Canvas>
     </div>

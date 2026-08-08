@@ -172,6 +172,12 @@ export default function RaceWorldApp() {
             </button>
           </li>
         })}</ul>}
+      <button
+        className="mobile-race-go"
+        type="button"
+        disabled={selected.length === 0}
+        onClick={startRace}
+      >🏁 START RACE</button>
     </aside>}
 
     {started && standings.length > 0 && <aside className="leaderboard" aria-label="Race standings">

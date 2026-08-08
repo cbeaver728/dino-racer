@@ -9,8 +9,10 @@ import {
   WORLD_LIFT,
   WORLD_SCALE,
   distanceToRoad,
+  terrainAt,
   type Point,
 } from './course'
+import type { Terrain } from './raceTypes'
 
 const seeded = (seed: number) => {
   const value = Math.sin(seed * 975.31) * 43758.5453
@@ -53,6 +55,46 @@ function RaceRoad() {
       <circleGeometry args={[.065, 8]} /><meshBasicMaterial color="#f4dfaa" transparent opacity={.9} />
     </mesh>)}
   </group>
+}
+
+const TRACK_DETAIL_COLORS: Record<Terrain, string> = {
+  Marsh: '#4b9ba5',
+  Mountains: '#81737b',
+  Forest: '#3c7f46',
+  Plains: '#d29c48',
+}
+
+/**
+ * Painted, nearly-flat terrain cues. They identify each road section without
+ * adding anything a racing dinosaur can collide with or hide behind.
+ */
+function TrackTerrainDetails() {
+  const details = useMemo(() => Array.from({ length: 44 }, (_, index) => {
+    const t = (index + .5) / 44
+    const point = COURSE_CURVE.getPointAt(t)
+    const tangent = COURSE_CURVE.getTangentAt(t).setY(0).normalize()
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
+    const terrain = terrainAt(point.x, point.z)
+    const offset = (index % 2 ? 1 : -1) * (.78 + seeded(index + 1500) * .34)
+    return {
+      terrain,
+      position: point.clone().addScaledVector(side, offset),
+      angle: Math.atan2(tangent.x, tangent.z),
+      scale: .18 + seeded(index + 1540) * .16,
+    }
+  }), [])
+
+  return <group>{details.map((detail, index) => <mesh
+    key={index}
+    position={[detail.position.x, detail.position.y + .086, detail.position.z]}
+    rotation={[-Math.PI / 2, 0, detail.angle]}
+    scale={[detail.terrain === 'Marsh' ? 1.7 : 1, 1, 1]}
+  >
+    {detail.terrain === 'Forest'
+      ? <ringGeometry args={[detail.scale * .42, detail.scale, 6]} />
+      : <circleGeometry args={[detail.scale, detail.terrain === 'Mountains' ? 6 : 12]} />}
+    <meshBasicMaterial color={TRACK_DETAIL_COLORS[detail.terrain]} transparent opacity={detail.terrain === 'Marsh' ? .62 : .72} depthWrite={false} />
+  </mesh>)}</group>
 }
 
 function GroundPatch({ position, scale, color, opacity = 1 }: { position: [number, number]; scale: [number, number]; color: string; opacity?: number }) {
@@ -111,8 +153,8 @@ function MountainBiome() {
     return { x, z, scale: .35 + seeded(index + 320) * .7 }
   }).filter(({ x, z }) => distanceToRoad(x, z) > 2), [])
   return <group>
-    <GroundPatch position={[-7.5, 8]} scale={[8.7, 5.8]} color="#758060" />
-    <Mountain position={[-3.3, 0, 12.2]} scale={1.4} color="#7d7187" /><Mountain position={[-13.7, 0, 9]} scale={1.05} color="#626d78" />
+    <GroundPatch position={[-7.5, 8.8]} scale={[9.4, 7.4]} color="#758060" />
+    <Mountain position={[-7.5, 0, 15.2]} scale={1.4} color="#7d7187" /><Mountain position={[-17.8, 0, 12.5]} scale={1.05} color="#626d78" />
     {rocks.map((rock, index) => <Rock key={index} {...rock} color={index % 2 ? '#67646b' : '#81767d'} />)}
   </group>
 }
@@ -199,7 +241,7 @@ export function RaceWorld({ children, follow }: { children?: ReactNode; follow?:
     <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[100, 92]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
     <group scale={[WORLD_SCALE, WORLD_LIFT, WORLD_SCALE]}>
       <PlainsBiome /><MarshBiome /><MountainBiome /><ForestBiome />
-      <RaceRoad /><StartGate />
+      <RaceRoad /><TrackTerrainDetails /><StartGate />
       {children}
     </group>
     <CourseCamera follow={follow} />

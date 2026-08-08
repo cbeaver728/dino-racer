@@ -116,6 +116,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .race-controls button:active { transform: translateY(3px); box-shadow: 0 2px 0 #00000033; }
 .race-go { background: #e0574f; font-size: 1.1rem; letter-spacing: .5px; }
 .race-go:disabled { background: #9aa6a2; cursor: not-allowed; box-shadow: 0 5px 0 #00000022; }
+.mobile-race-go { display: none; }
 .race-reset { background: #3d7f92; }
 .race-follow { background: #57616b; }
 .race-follow.on { background: #4f9e65; }
@@ -169,8 +170,11 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 
   .racer-picker, .leaderboard { top: auto; bottom: 84px; left: 9px; right: 9px; width: auto; padding: 10px; }
   .picker-list { max-height: 30vh; grid-template-columns: 1fr 1fr; }
+  .mobile-race-go { display: block; width: 100%; min-height: 48px; margin-top: 9px; border: 0; border-radius: 13px; background: #e0574f; color: #fff; font-weight: 900; font-size: 1rem; box-shadow: 0 5px 0 #9e3934; }
+  .mobile-race-go:disabled { background: #9aa6a2; box-shadow: 0 5px 0 #6e7774; }
   .leaderboard ol { grid-template-columns: 1fr 1fr; }
-  .race-controls { bottom: 12px; gap: 7px; width: calc(100vw - 18px); }
+  .race-controls { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); gap: 7px; width: calc(100vw - 18px); }
   .race-controls button { flex: 1; min-height: 46px; padding: 0 10px; font-size: .82rem; }
   .race-go { font-size: .95rem; }
+  .race-controls .race-go { display: none; }
 }
