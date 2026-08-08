@@ -40,6 +40,7 @@ export default function App() {
     dino.feature === 'Plates' && 'plates',
     dino.feature === 'Back Spikes' && 'back spikes',
     dino.tail === 'Spiked Tail' && 'tail spikes',
+    dino.feet === 'Webbed Feet' && 'foot webbing',
   ].filter(Boolean) as string[]
   const trimText = trim.length > 1
     ? `${trim.slice(0, -1).join(', ')} and ${trim[trim.length - 1]}`

@@ -195,9 +195,11 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
 function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
   return (
     <group>
+      {/* Webbed feet get a small pad so the membrane is the wide part, the way a
+          duck's foot reads. A full-size pad simply swallowed the web. */}
       <mesh
-        position={[0.13, 0.1, 0]}
-        scale={type === 'Webbed Feet' ? [0.8, 0.22, 0.75] : [0.65, 0.28, 0.6]}
+        position={[type === 'Webbed Feet' ? 0.08 : 0.13, 0.1, 0]}
+        scale={type === 'Webbed Feet' ? [0.5, 0.22, 0.42] : [0.65, 0.28, 0.6]}
       >
         <sphereGeometry args={[0.55, 32, 22]} />
         <Skin color={type === 'Round Feet' ? palette.belly : palette.shade} />
@@ -210,22 +212,22 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
       ))}
       {type === 'Webbed Feet' && (
         <>
-          {[-0.26, 0, 0.26].map((z) => (
-            <mesh key={z} position={[0.42, 0.08, z]} rotation={[0, 0, -Math.PI / 2]} scale={[1, 1, 0.7]}>
-              <coneGeometry args={[0.07, 0.4, 16]} />
+          {/* One broad fan spanning the whole splay, toes riding its edge. Two
+              small blobs between the toes barely read as webbing at all. */}
+          <mesh position={[0.44, 0.088, 0]} scale={[0.38, 0.028, 0.52]}>
+            <sphereGeometry args={[1, 36, 22]} />
+            <meshStandardMaterial
+              color={palette.patternSoft}
+              transparent
+              opacity={0.95}
+              roughness={0.28}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+          {[-0.34, 0, 0.34].map((z) => (
+            <mesh key={z} position={[0.58, 0.108, z]} rotation={[0, 0, -Math.PI / 2]} scale={[1, 1, 0.78]}>
+              <coneGeometry args={[0.078, 0.46, 16]} />
               <Skin color={palette.shade} />
-            </mesh>
-          ))}
-          {[-0.13, 0.13].map((z) => (
-            <mesh key={z} position={[0.31, 0.065, z]} scale={[0.45, 0.05, 0.25]}>
-              <sphereGeometry args={[0.72, 24, 16]} />
-              <meshStandardMaterial
-                color={palette.patternSoft}
-                transparent
-                opacity={0.85}
-                roughness={0.35}
-                side={THREE.DoubleSide}
-              />
             </mesh>
           ))}
         </>
@@ -377,30 +379,33 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
   const skullHalf = shape.dims.halfLength * headScale
   // Hind legs carry a biped under its centre of mass, further forward than the
   // hips of a four-legged build.
-  const hipU = biped ? -0.3 : -0.55
+  const hipU = biped ? -0.3 : -0.62
   const shoulder = bodySliceAt(dims, 0.82)
   const hip = bodySliceAt(dims, hipU)
   const tailBase = bodySliceAt(dims, -0.84)
-  const frontSlice = bodySliceAt(dims, 0.55)
+  const frontSlice = bodySliceAt(dims, 0.62)
 
   /**
-   * Sit the torso on its legs rather than at a height derived from the hind
-   * legs alone. Solving the tilt from where the two sockets actually are keeps
-   * the body attached however far apart the leg lengths get; deriving it from
-   * hindHeight only left the body floating once the range widened.
+   * Stance: how the torso sits on its legs.
+   *
+   * Matching the leg-length difference exactly is geometrically right but
+   * pitches the animal up to ~50 degrees at the extremes, nose in the dirt or
+   * pointed at the sky. These race, so the pitch is capped to a slope a real
+   * animal carries. The torso then hangs from the average of its two sockets and
+   * each leg is drawn to reach its own, which keeps everything joined at any
+   * pair of leg lengths — capping the angle alone would detach them.
    */
-  // Near the underside, not mid-torso: the socket height is what gets planted on
-  // the leg tops, so a socket inside the body sinks the whole animal onto them.
+  const MAX_PITCH = 0.38
+  const OVERLAP = 0.1
   const hipSocket = { x: hip.x, y: hip.centerY - hip.radiusY * 0.95 }
   const frontSocket = { x: frontSlice.x, y: frontSlice.centerY - frontSlice.radiusY * 0.95 }
   const spanX = frontSocket.x - hipSocket.x
   const spanY = frontSocket.y - hipSocket.y
   const reach = Math.hypot(spanX, spanY)
-  // Solve spanX*sin+spanY*cos = rise for the angle that lands both sockets.
-  const tilt = biped
-    ? -0.1
-    : Math.asin(THREE.MathUtils.clamp((frontHeight - hindHeight) / reach, -1, 1))
-      - Math.atan2(spanY, spanX)
+  // Solve spanX*sin + spanY*cos = rise for the angle that lands both sockets.
+  const levelPitch = Math.asin(THREE.MathUtils.clamp((frontHeight - hindHeight) / reach, -1, 1))
+    - Math.atan2(spanY, spanX)
+  const tilt = biped ? -0.1 : THREE.MathUtils.clamp(levelPitch, -MAX_PITCH, MAX_PITCH)
 
   const spin = (point: { x: number; y: number }) => ({
     x: point.x * Math.cos(tilt) - point.y * Math.sin(tilt),
@@ -408,7 +413,11 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
   })
   const hipWorld = spin(hipSocket)
   const frontWorld = spin(frontSocket)
-  const bodyY = hindHeight - 0.1 - hipWorld.y
+  const wantedMean = biped ? hindHeight : (hindHeight + frontHeight) / 2
+  const socketMean = biped ? hipWorld.y : (hipWorld.y + frontWorld.y) / 2
+  const bodyY = wantedMean - OVERLAP - socketMean
+  const hindDraw = bodyY + hipWorld.y + OVERLAP
+  const frontDraw = bodyY + frontWorld.y + OVERLAP
 
   const headPos: Vec3 = longNeck
     ? [dims.halfLength * 0.8 + skullHalf * 0.7, dims.halfHeight * 0.9 + 1.62, 0]
@@ -489,7 +498,7 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
           key={`hind-${side}`}
           x={hipWorld.x}
           z={side * legZ}
-          height={hindHeight}
+          height={hindDraw}
           palette={palette}
           foot={config.feet}
         />
@@ -499,7 +508,7 @@ export function Dinosaur({ config }: { config: DinosaurConfig }) {
           key={`front-${side}`}
           x={frontWorld.x}
           z={side * frontSlice.radiusZ * 0.95}
-          height={frontHeight}
+          height={frontDraw}
           palette={palette}
           foot={config.feet}
         />
