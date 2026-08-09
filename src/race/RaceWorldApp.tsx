@@ -151,7 +151,7 @@ export default function RaceWorldApp() {
     <header className="race-header">
       <a href="./" aria-label="Return to Dino Lab">🧪 DINO LAB</a>
       <div><p>DINOSAUR RACING GROUNDS</p><h1>{course.def.name.toUpperCase()}</h1></div>
-      <span>{course.def.icon}</span>
+      <a href="./run.html" aria-label="Play Star Dash">🌟</a>
     </header>
 
     <button className="course-info-toggle" type="button" aria-expanded={showInfo} onClick={() => setShowInfo((current) => !current)}>

@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         builder: 'index.html',
         race: 'race.html',
+        run: 'run.html',
       },
     },
   },

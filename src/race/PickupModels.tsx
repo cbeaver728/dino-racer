@@ -3,8 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { TORNADO_LIFETIME, type Pickup } from './pickups'
 
-/** Five-pointed star, built once and shared by every pickup on the track. */
-const STAR_GEOMETRY = (() => {
+/** Five-pointed star, built once and shared by every pickup in every mode. */
+export const STAR_GEOMETRY = (() => {
   const shape = new THREE.Shape()
   for (let index = 0; index < 10; index++) {
     const radius = index % 2 === 0 ? 1 : 0.44

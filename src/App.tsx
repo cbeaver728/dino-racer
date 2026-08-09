@@ -57,7 +57,14 @@ export default function App() {
 
   return (
     <main>
-      <header><span>🧪</span><div><h1>DINO LAB</h1><p>Build your own dinosaur!</p></div><a className="to-race" href="./race.html">🏁<span>RACE<br />TRACK</span></a></header>
+      <header>
+        <span>🧪</span>
+        <div><h1>DINO LAB</h1><p>Build your own dinosaur!</p></div>
+        <div className="go-play">
+          <a className="to-race" href="./race.html">🏁<span>RACE<br />TRACK</span></a>
+          <a className="to-run" href="./run.html">🌟<span>STAR<br />DASH</span></a>
+        </div>
+      </header>
 
       {roster.length > 0 && <aside className="stable" aria-label="Your saved dinosaurs">
         <div className="stable-head">
