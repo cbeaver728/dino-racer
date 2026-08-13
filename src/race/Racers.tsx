@@ -29,12 +29,14 @@ export interface ChaseTarget {
   active: boolean
 }
 
-export function Racers({ racers, course, running, onFinish, onSample, leaderOut, chaseId, chaseOut, steering }: {
+export function Racers({ racers, course, running, onFinish, onLap, onSample, leaderOut, chaseId, chaseOut, steering }: {
   /** Mutated in place by the frame loop; remount the component to reset. */
   racers: RacerState[]
   course: Course
   running: boolean
   onFinish: (racer: RacerState) => void
+  /** A racer has crossed the line onto `lap`, which is 2 on a two-lap race. */
+  onLap?: (racer: RacerState, lap: number) => void
   onSample: () => void
   /** Receives the leader's world position for the follow camera. */
   leaderOut?: THREE.Vector3
@@ -93,7 +95,13 @@ export function Racers({ racers, course, running, onFinish, onSample, leaderOut,
 
       for (const racer of racers) {
         const wasRunning = racer.finishedAt === null
+        const lapBefore = Math.floor(racer.progress)
         stepRacer(racer, delta, now, course)
+        // Crossing the line onto a new lap, before the finish is considered, so
+        // the last lap is announced rather than the race simply ending.
+        if (wasRunning && Math.floor(racer.progress) > lapBefore && racer.progress < LAP_COUNT) {
+          onLap?.(racer, Math.floor(racer.progress) + 1)
+        }
         if (wasRunning && racer.progress >= LAP_COUNT) {
           racer.progress = LAP_COUNT
           racer.finishedAt = now

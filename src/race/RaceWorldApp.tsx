@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { loadRoster } from '../game/storage'
 import { fillWithRivals } from '../game/rivals'
-import { playCountBeep, playFinish, playGo, playTap, unlock } from '../game/sound'
+import { playCountBeep, playFinalLap, playFinish, playGo, playTap, unlock } from '../game/sound'
 import { SoundToggle } from '../components/SoundToggle'
 import { COURSE, DEMO_DINO, LAP_COUNT, type Terrain } from './raceTypes'
 import { COURSES, toRaceProfile } from './course'
@@ -48,6 +48,8 @@ export default function RaceWorldApp() {
   /** Full standings, or just your own row. Collapsed while driving so the
    * steering pads and the track are not competing with a list. */
   const [standingsOpen, setStandingsOpen] = useState(true)
+  /** Showing the "final lap" call-out. */
+  const [finalLap, setFinalLap] = useState(false)
 
   /**
    * Camera: free orbit, locked to the leader, or riding behind one racer. Held
@@ -57,6 +59,7 @@ export default function RaceWorldApp() {
 
   const racers = useRef<RacerState[]>([])
   const podiumShown = useRef(false)
+  const finalLapShown = useRef(false)
   const leader = useRef(new THREE.Vector3())
   const chase = useRef<ChaseTarget>({ position: new THREE.Vector3(), heading: 0, active: false })
 
@@ -97,6 +100,8 @@ export default function RaceWorldApp() {
 
     racers.current = createRacers(field, course, driving ? driverId : null)
     podiumShown.current = false
+    finalLapShown.current = false
+    setFinalLap(false)
     setStandings(standingsOf(racers.current))
     setFinishers([])
     setPodiumOpen(false)
@@ -113,6 +118,8 @@ export default function RaceWorldApp() {
   const resetRace = () => {
     racers.current = []
     podiumShown.current = false
+    finalLapShown.current = false
+    setFinalLap(false)
     setStandings([])
     setFinishers([])
     setPodiumOpen(false)
@@ -157,6 +164,28 @@ export default function RaceWorldApp() {
       setPodiumOpen(true)
     }
   }, [])
+
+  /**
+   * Called as each racer crosses the line onto a new lap. Only the dinosaur the
+   * player is actually watching gets an announcement — theirs when driving, the
+   * leader otherwise — and only once, so a whole field starting the last lap
+   * does not fire the banner four times.
+   */
+  const handleLap = useCallback((racer: RacerState, lap: number) => {
+    if (lap < LAP_COUNT || finalLapShown.current) return
+    const anyDriven = racers.current.some((entry) => entry.driven)
+    if (anyDriven && !racer.driven) return
+    finalLapShown.current = true
+    setFinalLap(true)
+    playFinalLap()
+  }, [])
+
+  // Long enough to read, short enough not to sit on the road while steering.
+  useEffect(() => {
+    if (!finalLap) return
+    const timer = setTimeout(() => setFinalLap(false), 2400)
+    return () => clearTimeout(timer)
+  }, [finalLap])
 
   const handleSample = useCallback(() => {
     setStandings(standingsOf(racers.current))
@@ -212,6 +241,7 @@ export default function RaceWorldApp() {
           course={course}
           running={racing}
           onFinish={handleFinish}
+          onLap={handleLap}
           onSample={handleSample}
           leaderOut={leader.current}
           chaseId={chasing ? cameraMode : null}
@@ -223,7 +253,7 @@ export default function RaceWorldApp() {
 
     <header className="race-header">
       <a href="./" aria-label="Return to Dino Lab">🧪 DINO LAB</a>
-      <div><p>DINOSAUR RACING GROUNDS</p><h1>{course.def.name.toUpperCase()}</h1></div>
+      <div className="race-title"><p>DINOSAUR RACING GROUNDS</p><h1>{course.def.name.toUpperCase()}</h1></div>
       <div className="race-header-actions">
         <SoundToggle />
         <a className="race-play-link" href="./run.html" aria-label="Play Star Dash">🌟</a>
@@ -386,6 +416,11 @@ export default function RaceWorldApp() {
 
     {phase === 'countdown' && <div className="countdown" role="status" aria-live="assertive">
       <span key={countdown}>{countdown > 0 ? countdown : 'GO!'}</span>
+    </div>}
+
+    {finalLap && <div className="final-lap" role="status" aria-live="polite">
+      <strong>LAP {LAP_COUNT}</strong>
+      <small>FINAL LAP!</small>
     </div>}
 
     {started && <div className={`race-controls${racing && driving ? ' driving' : ''}`}>

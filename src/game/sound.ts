@@ -6,8 +6,9 @@
  * built until `unlock()` runs inside a click or key handler. Every entry point
  * is safe to call before that happens — it simply makes no sound.
  *
- * Mute lives in memory only. It deliberately does not touch storage, so nothing
- * here has to care where a phone keeps its site data.
+ * Mute lives in memory only, and starts on. It deliberately does not touch
+ * storage, so nothing here has to care where a phone keeps its site data —
+ * which does mean sound has to be switched on again after a reload.
  */
 
 /** Kept low: several cues can overlap during a busy race. */
@@ -16,7 +17,11 @@ const MASTER_GAIN = 0.22
 let context: AudioContext | null = null
 let master: GainNode | null = null
 let noiseBuffer: AudioBuffer | null = null
-let muted = false
+/**
+ * Silent until asked. A game that starts making noise on its own is a nuisance
+ * on a phone in a quiet room; the speaker button in the header turns it on.
+ */
+let muted = true
 
 const listeners = new Set<() => void>()
 
@@ -159,6 +164,13 @@ export function playTornado() {
   play([{ freq: 420, to: 90, duration: 0.5, wave: 'sawtooth', gain: 0.45 }])
   playNoise(0.45, 0.3)
 }
+
+/** Starting the last lap: a bell pair, urgent enough to look up for. */
+export const playFinalLap = () => play([
+  { freq: 1319, duration: 0.16, wave: 'triangle', gain: 0.75 },
+  { freq: 1319, duration: 0.34, wave: 'triangle', gain: 0.75, at: 0.19 },
+  { freq: 880, duration: 0.34, wave: 'triangle', gain: 0.4, at: 0.19 },
+])
 
 /** Crossing the line. Rises for a win, settles for anyone else. */
 export const playFinish = (won: boolean) => play(won
