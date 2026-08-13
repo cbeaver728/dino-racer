@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadRoster } from '../game/storage'
+import { playStar, playTimeUp, playTornado, unlock } from '../game/sound'
+import { SoundToggle } from '../components/SoundToggle'
 import { RunWorld } from './RunWorld'
 import { LANES, LANE_GLIDE, RUN_SECONDS } from './runEngine'
 import './run.css'
@@ -32,6 +34,9 @@ export default function RunApp() {
   }, [])
 
   const start = () => {
+    // Every route into a run passes through here, so this is the reliable place
+    // to let the audio context start on a real gesture.
+    unlock()
     playerX.current = LANES[1]
     targetLane.current = 1
     setLane(1)
@@ -70,7 +75,10 @@ export default function RunApp() {
   }, [running])
 
   useEffect(() => {
-    if (running && remaining === 0) setPhase('timeup')
+    if (running && remaining === 0) {
+      playTimeUp()
+      setPhase('timeup')
+    }
   }, [running, remaining])
 
   useEffect(() => {
@@ -83,8 +91,8 @@ export default function RunApp() {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const onStar = useCallback(() => setScore((value) => value + 1), [])
-  const onTornado = useCallback(() => setPhase('crashed'), [])
+  const onStar = useCallback(() => { playStar(); setScore((value) => value + 1) }, [])
+  const onTornado = useCallback(() => { playTornado(); setPhase('crashed') }, [])
 
   if (!config) {
     return <main className="run-app">
@@ -112,6 +120,7 @@ export default function RunApp() {
       <a href="./" aria-label="Back to Dino Lab">🧪</a>
       <div className="run-score"><span>⭐</span><strong>{score}</strong></div>
       <div className={`run-timer${remaining <= 10 && running ? ' low' : ''}`}><span>⏱</span><strong>{remaining}</strong></div>
+      <SoundToggle />
     </header>
 
     {phase === 'pick' && <div className="run-card-backdrop">

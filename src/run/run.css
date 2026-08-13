@@ -14,11 +14,12 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
   position: absolute; z-index: 2; top: 0; left: 0; right: 0;
   display: flex; align-items: center; gap: 10px; padding: 12px 14px;
 }
-.run-header > a {
+.run-header > a, .run-header .sound-toggle {
   display: grid; place-items: center; width: 46px; height: 46px; flex: none;
-  font-size: 1.35rem; text-decoration: none;
+  font-size: 1.35rem; text-decoration: none; color: #fff;
   border: 2px solid #ffffff88; border-radius: 14px; background: #173f49d9; box-shadow: 0 4px 0 #102f36;
 }
+.run-header .sound-toggle:active { transform: translateY(2px); box-shadow: 0 2px 0 #102f36; }
 .run-score, .run-timer {
   display: flex; align-items: center; gap: 7px; padding: 8px 15px;
   border: 3px solid #fff; border-radius: 99px; background: #fffdf1ee; box-shadow: 0 4px 0 #17414a44;

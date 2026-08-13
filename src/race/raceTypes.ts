@@ -1,13 +1,25 @@
+import type { HeadType } from '../game/dinosaurTypes'
+
 export const TERRAIN_ORDER = ['Marsh', 'Mountains', 'Forest', 'Plains'] as const
 export type Terrain = typeof TERRAIN_ORDER[number]
 
+/** Laps in a race. Two gives a comeback somewhere to happen. */
+export const LAP_COUNT = 2
+/** Local units per second at neutral pace; a lap lands around twenty seconds. */
+export const BASE_SPEED = 5
+
 export type RaceDinosaurProfile = {
+  head: HeadType
   size: 'Small' | 'Medium' | 'Big'
   legLength: 'Short' | 'Normal' | 'Long'
   footType: 'Round Feet' | 'Clawed Feet' | 'Webbed Feet'
   tailType: 'Stubby Tail' | 'Long Tail' | 'Giant Tail' | 'Spiked Tail'
   stance: 'Biped' | 'Quadruped'
   hasWings: boolean
+  /** 1–5, straight off the builder's stats panel. Shrugs off tornadoes. */
+  strength: number
+  /** 1–5, straight off the builder's stats panel. Holds pace to the finish. */
+  stamina: number
 }
 
 export type TerrainResult = {
@@ -35,10 +47,13 @@ export const COURSE: CourseSection[] = [
 ]
 
 export const DEMO_DINO: RaceDinosaurProfile = {
+  head: 'Raptor',
   size: 'Medium',
   legLength: 'Normal',
   footType: 'Clawed Feet',
   tailType: 'Long Tail',
   stance: 'Biped',
   hasWings: false,
+  strength: 3,
+  stamina: 3,
 }

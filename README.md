@@ -1,6 +1,6 @@
 # Dino Lab
 
-A cheerful, touch-first 3D dinosaur builder for kids ages 4–10. Version 1 lets players mix silly dinosaur parts, view future racing stats, rotate, name, and save a creation.
+A cheerful, touch-first 3D dinosaur builder and racer for kids ages 4–10. Players mix silly dinosaur parts, save their creations, then take them to the track — either driving one themselves or watching the field race.
 
 ## Run
 
@@ -22,4 +22,18 @@ Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and respo
 - Randomize, reset, design-driven stats, naming, and local save/load
 - Desktop, tablet, and phone layouts
 
-Future versions may add a test track, terrain racing, safari island, and dinosaur collection. Configuration, stats, rendering, and storage remain separate to support that roadmap.
+## Version 2
+
+- **Drive mode** — steer one of your dinosaurs during the race with the on-screen pads or the arrow keys, collecting stars and dodging tornadoes. The chase camera locks on automatically. Watch mode is still there for anyone who would rather cheer.
+- **Rival dinosaurs** — five built-in opponents fill the grid, so a first race is a real race even with one saved dinosaur (`src/game/rivals.ts`).
+- **Strength and stamina do something** — strength shortens the spin-out after a tornado and powers the mountain climb; stamina is a late-race fade, so a sprinter leads lap one and gets reeled in on lap two. Both come from the same `calculateStats` the builder's panel displays.
+- **Head families matter** — each of the five heads owns a terrain, except Parasaurolophus, which keeps a little of its pace everywhere.
+- **Closer racing** — pace is compressed toward the middle rather than clipped at a hard limit, which cut the spread between the best and worst of the 13,500 possible builds from 47% to 20% while keeping every part choice meaningful.
+- **Two laps**, with a lap counter and tornadoes spread across the real race duration.
+- **Sound** — countdown, start, star, tornado and finish cues, synthesised in `src/game/sound.ts` with no audio files, plus a mute button on both game pages.
+
+### Not yet done
+
+Win counts, best laps, and Star Dash high scores are deliberately absent until where a phone keeps its site data is settled. Only the roster is persisted today.
+
+Configuration, stats, simulation, rendering, and storage remain separate to support the roadmap: safari island and a dinosaur collection are still ahead.

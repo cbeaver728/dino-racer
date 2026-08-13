@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { isBiped, type DinosaurConfig } from '../game/dinosaurTypes'
+import { calculateStats } from '../game/calculateStats'
 import { TERRAIN_ORDER, type RaceDinosaurProfile, type Terrain } from './raceTypes'
 
 export type Point = [number, number, number]
@@ -170,14 +171,22 @@ export const COURSES = COURSE_DEFS.map(buildCourse)
 export const defaultCourse = COURSES[0]
 export const courseById = (id: string) => COURSES.find((course) => course.def.id === id) ?? defaultCourse
 
-/** The racing traits the simulation reads out of a built dinosaur. */
+/**
+ * The racing traits the simulation reads out of a built dinosaur. Strength and
+ * stamina come from the same `calculateStats` the builder's panel shows, so the
+ * bars a child fills in are the numbers the race actually runs on.
+ */
 export function toRaceProfile(config: DinosaurConfig): RaceDinosaurProfile {
+  const stats = calculateStats(config)
   return {
+    head: config.head,
     size: config.body,
     legLength: config.hindLegs,
     footType: config.feet,
     tailType: config.tail,
     stance: isBiped(config) ? 'Biped' : 'Quadruped',
     hasWings: config.feature === 'Wings',
+    strength: stats.strength,
+    stamina: stats.stamina,
   }
 }

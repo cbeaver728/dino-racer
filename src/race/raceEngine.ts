@@ -1,13 +1,11 @@
 import type { DinosaurConfig, SavedDinosaur } from '../game/dinosaurTypes'
 import { toRaceProfile, type Course } from './course'
-import { evaluateTerrain } from './raceSimulation'
+import { evaluateTerrain, staminaPace } from './raceSimulation'
 import { STAR_BOOST } from './pickups'
-import { TERRAIN_ORDER, type RaceDinosaurProfile, type Terrain } from './raceTypes'
+import { BASE_SPEED, LAP_COUNT, TERRAIN_ORDER, type RaceDinosaurProfile, type Terrain } from './raceTypes'
 
-/** One lap of the circuit. Long enough to feel like a race, short enough to watch. */
-export const LAP_COUNT = 1
-/** Local units per second at neutral pace; a lap lands around twenty seconds. */
-export const BASE_SPEED = 5
+export { BASE_SPEED, LAP_COUNT }
+
 /** Most dinosaurs that fit across the road without overlapping. */
 export const MAX_RACERS = 6
 /** How far from the centre line the outermost lanes sit. */
@@ -30,13 +28,17 @@ export interface RacerState {
   boostUntil: number
   /** Elapsed time this racer keeps running backwards until, after a tornado. */
   reverseUntil: number
+  /** How long the current spin lasts, which strength shortens. Drives the spin-out. */
+  reverseSpan: number
   /** What the standings should show is happening to them right now. */
   effect: 'boost' | 'reverse' | null
+  /** True for the dinosaur the player is steering, if any. */
+  driven: boolean
   finishedAt: number | null
   place: number | null
 }
 
-export function createRacers(entries: SavedDinosaur[], course: Course): RacerState[] {
+export function createRacers(entries: SavedDinosaur[], course: Course, drivenId?: string | null): RacerState[] {
   const count = Math.min(entries.length, MAX_RACERS)
   return entries.slice(0, count).map((entry, index) => {
     const profile = toRaceProfile(entry.config)
@@ -58,7 +60,9 @@ export function createRacers(entries: SavedDinosaur[], course: Course): RacerSta
       terrain: course.terrainAt(start.x, start.z),
       boostUntil: 0,
       reverseUntil: 0,
+      reverseSpan: 0,
       effect: null,
+      driven: entry.id === drivenId,
       finishedAt: null,
       place: null,
     }
@@ -88,7 +92,10 @@ export function stepRacer(racer: RacerState, delta: number, elapsed: number, cou
   // round instead of settling into a fixed order in the first second.
   const surge = 1 + Math.sin(elapsed * 1.3 + racer.seed * 7) * 0.05
   const boost = elapsed < racer.boostUntil ? STAR_BOOST : 1
-  racer.speed = BASE_SPEED * racer.paces[racer.terrain] * surge * boost
+  // Tiring is measured against the whole race, so the sprinter who led lap one
+  // is visibly coming back to the field on lap two.
+  const fade = staminaPace(racer.profile.stamina, racer.progress / LAP_COUNT)
+  racer.speed = BASE_SPEED * racer.paces[racer.terrain] * surge * boost * fade
 
   // A tornado sends them back down the track; never past the start line, so the
   // standings cannot read as a negative lap.

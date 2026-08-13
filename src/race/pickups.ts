@@ -22,12 +22,24 @@ export const STAR_BOOST_TIME = 1.8
 export const STAR_INTERVAL = 2.6
 export const MAX_LIVE_STARS = 7
 
-/** Tornadoes: three a race, each on the track for three seconds. */
-export const TORNADO_COUNT = 3
+/** Tornadoes per lap, each on the track for three seconds. */
+export const TORNADO_PER_LAP = 3
 export const TORNADO_LIFETIME = 3
 export const REVERSE_TIME = 2.2
 /** How long the spin-out reads before they settle into running backwards. */
 export const SPIN_TIME = 0.6
+
+/**
+ * How long a tornado holds this dinosaur, given its strength.
+ *
+ * Strength had no effect on a race at all until now. Shrugging off a tornado is
+ * the most visible thing it could do: a strong dinosaur is back on its feet in
+ * half the time a weak one takes, and a child can watch that happen.
+ */
+export function reverseTimeFor(strength: number) {
+  const power = (Math.max(1, Math.min(5, strength)) - 1) / 4
+  return REVERSE_TIME * (1 - power * 0.5)
+}
 
 /**
  * Roughly one dinosaur's footprint. Generous on purpose — these are meant to be
@@ -35,6 +47,15 @@ export const SPIN_TIME = 0.6
  */
 const HIT_ARC = 0.66
 const HIT_LANE = 0.62
+/**
+ * The tornado box used for whoever is steering.
+ *
+ * Generosity helps a dinosaur the computer drives into a hazard it was never
+ * aiming for, but it punishes a player who made a real dodge. Stars keep the
+ * wide box — easy to collect, harder to crash into, the same bargain Star Dash
+ * already makes.
+ */
+const PLAYER_HIT_LANE = 0.44
 
 /** Shortest signed distance between two lap fractions, in -0.5..0.5. */
 export function lapDelta(a: number, b: number) {
@@ -44,9 +65,10 @@ export function lapDelta(a: number, b: number) {
   return delta
 }
 
-export function hits(racerT: number, racerLane: number, pickup: Pickup, courseLength: number) {
+export function hits(racerT: number, racerLane: number, pickup: Pickup, courseLength: number, driven = false) {
+  const lane = driven && pickup.kind === 'tornado' ? PLAYER_HIT_LANE : HIT_LANE
   return Math.abs(lapDelta(racerT, pickup.t)) * courseLength < HIT_ARC
-    && Math.abs(racerLane - pickup.lane) < HIT_LANE
+    && Math.abs(racerLane - pickup.lane) < lane
 }
 
 /**
@@ -71,9 +93,16 @@ export function spawnAhead(id: number, kind: PickupKind, reference: number, elap
 }
 
 /**
- * Three tornado times, packed early enough that all three still land even when a
- * fast field finishes the lap in well under twenty seconds.
+ * When each tornado arrives, spread across the race the field is actually about
+ * to run. Taking the expected duration as an argument keeps them coming for the
+ * whole race instead of bunching into the first lap the moment lap count or pace
+ * changes — the last one lands with about a fifth of the race still to go, so
+ * there is always time to recover from it.
  */
-export function scheduleTornadoes(): number[] {
-  return [0, 1, 2].map((index) => 2 + index * 3.4 + Math.random() * 1.8)
+export function scheduleTornadoes(count: number, expectedDuration: number): number[] {
+  const window = expectedDuration * 0.8
+  const step = window / (count + 1)
+  return Array.from({ length: count }, (_, index) => (
+    1.5 + step * (index + 1) + (Math.random() - 0.5) * step * 0.5
+  ))
 }
