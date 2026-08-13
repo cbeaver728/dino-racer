@@ -45,6 +45,9 @@ export default function RaceWorldApp() {
   const [mode, setMode] = useState<Mode>(roster.length ? 'drive' : 'watch')
   const [useRivals, setUseRivals] = useState(true)
   const [driver, setDriver] = useState<string | null>(null)
+  /** Full standings, or just your own row. Collapsed while driving so the
+   * steering pads and the track are not competing with a list. */
+  const [standingsOpen, setStandingsOpen] = useState(true)
 
   /**
    * Camera: free orbit, locked to the leader, or riding behind one racer. Held
@@ -100,6 +103,9 @@ export default function RaceWorldApp() {
     setRaceKey((key) => key + 1)
     setCountdown(3)
     setPhase('countdown')
+    // Driving needs the screen for the track and the pads; watching wants the
+    // whole field. Open the standings only when there is room for them.
+    setStandingsOpen(!driving)
     // You cannot steer from a map view, so driving takes the chase camera.
     if (driving && driverId) setCameraMode(driverId)
   }
@@ -169,6 +175,12 @@ export default function RaceWorldApp() {
     ? Math.min(LAP_COUNT, Math.floor(standings[0].progress) + 1)
     : 1
 
+  // Positions are kept alongside each racer so a collapsed board can still show
+  // the real place rather than renumbering the one row it draws.
+  const ranked = standings.map((racer, index) => ({ racer, index }))
+  const focused = ranked.find((entry) => entry.racer.driven) ?? ranked[0]
+  const shownRows = standingsOpen ? ranked : focused ? [focused] : []
+
   /** Hold-to-steer. Capturing the pointer keeps a finger that slides off the pad
    * from leaving the dinosaur locked at full lock. */
   const steerPad = (direction: SteerDirection) => ({
@@ -186,7 +198,7 @@ export default function RaceWorldApp() {
     onPointerCancel: () => steering.release(direction),
   })
 
-  return <main className="race-app">
+  return <main className={`race-app${started ? ' running' : ''}`}>
     <div className="race-world">
       <RaceWorld
         key={course.def.id}
@@ -218,9 +230,10 @@ export default function RaceWorldApp() {
       </div>
     </header>
 
-    <button className="course-info-toggle" type="button" aria-expanded={showInfo} onClick={() => setShowInfo((current) => !current)}>
+    {/* Setup reading. It would otherwise land on top of the driving controls. */}
+    {!started && <button className="course-info-toggle" type="button" aria-expanded={showInfo} onClick={() => setShowInfo((current) => !current)}>
       {showInfo ? '✕ Hide course info' : 'ⓘ Course info'}
-    </button>
+    </button>}
 
     {showInfo && <><aside className="race-map" aria-label="Race course terrain">
       <div className="race-map-title"><span>🗺️</span><div><strong>THE ADVENTURE LOOP</strong><small>A continuous circuit through four wild biomes.</small></div></div>
@@ -321,21 +334,34 @@ export default function RaceWorldApp() {
         <div><strong>Race the rivals</strong><small>Fills the grid up to {GRID_TARGET} dinosaurs</small></div>
       </button>
 
+      {/* Sticks to the foot of the panel. It used to sit in the bottom bar and
+          be hidden on narrow screens, which left the button buried below a
+          scroll on a short window with no way to see it. */}
       <button
-        className="mobile-race-go"
+        className="picker-race-go"
         type="button"
         disabled={selected.length === 0 && !useRivals}
         onClick={startRace}
       >🏁 START RACE</button>
     </aside>}
 
-    {started && standings.length > 0 && <aside className="leaderboard" aria-label="Race standings">
+    {started && standings.length > 0 && <aside
+      className={`leaderboard${driving ? ' driving' : ''}${standingsOpen ? '' : ' collapsed'}`}
+      aria-label="Race standings"
+    >
       <div className="leaderboard-head">
         <span>🏁</span>
-        <strong>{phase === 'finished' ? 'FINAL RESULTS' : 'RACE ORDER'}</strong>
+        <strong>{phase === 'finished' ? 'FINAL RESULTS' : standingsOpen ? 'RACE ORDER' : 'YOU'}</strong>
         {phase !== 'finished' && <em className="lap-chip">LAP {leaderLap}/{LAP_COUNT}</em>}
+        <button
+          className="standings-toggle"
+          type="button"
+          aria-expanded={standingsOpen}
+          aria-label={standingsOpen ? 'Hide the other racers' : 'Show all racers'}
+          onClick={() => { playTap(); setStandingsOpen((current) => !current) }}
+        >{standingsOpen ? '▾' : '▸'}</button>
       </div>
-      <ol>{standings.map((racer, index) => <li key={racer.id} className={`${racer.place ? 'done' : ''}${racer.driven ? ' you' : ''}`}>
+      <ol>{shownRows.map(({ racer, index }) => <li key={racer.id} className={`${racer.place ? 'done' : ''}${racer.driven ? ' you' : ''}`}>
         <b>{racer.place ? PLACE_MEDAL[racer.place - 1] : index + 1}</b>
         <i style={{ background: racer.config.color }} />
         <div>
@@ -355,23 +381,17 @@ export default function RaceWorldApp() {
       <span key={countdown}>{countdown > 0 ? countdown : 'GO!'}</span>
     </div>}
 
-    <div className={`race-controls${racing && driving ? ' driving' : ''}`}>
-      {!started && <button
-        className="race-go"
-        type="button"
-        disabled={selected.length === 0 && !useRivals}
-        onClick={startRace}
-      >🏁 START RACE</button>}
-      {started && <button className="race-reset" type="button" onClick={resetRace}>↻ NEW RACE</button>}
-      {started && <button
+    {started && <div className={`race-controls${racing && driving ? ' driving' : ''}`}>
+      <button className="race-reset" type="button" onClick={resetRace}>↻ NEW RACE</button>
+      <button
         className={`race-follow${cameraMode === 'free' ? '' : ' on'}`}
         type="button"
         onClick={cycleCamera}
       >🎥 {cameraMode === 'free' ? 'Free camera'
         : cameraMode === 'leader' ? 'Following leader'
-          : `Behind ${chasedName ?? 'racer'}`}</button>}
+          : `Behind ${chasedName ?? 'racer'}`}</button>
       {finishers.length > 0 && !podiumOpen && <button className="race-results" type="button" onClick={() => setPodiumOpen(true)}>🏆 RESULTS</button>}
-    </div>
+    </div>}
 
     {racing && driving && <div className="race-steer">
       <button type="button" aria-label="Steer left" {...steerPad(-1)}>◀</button>
@@ -394,7 +414,7 @@ export default function RaceWorldApp() {
       </div>
     </div>}
 
-    <section className="world-controls" aria-label="World camera instructions">
+    <section className={`world-controls${racing && driving ? ' steering' : ''}`} aria-label="World camera instructions">
       <span>{racing && driving ? '🎮' : '◉'}</span>
       <div>{racing && driving
         ? <><strong>STEER YOUR DINOSAUR</strong><small>Hold ◀ ▶ or the arrow keys · grab stars, dodge tornadoes</small></>

@@ -70,6 +70,8 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 .world-controls strong, .world-controls small { display: block; }
 .world-controls strong { font: 800 .82rem 'Baloo 2'; letter-spacing: .4px; }
 .world-controls small { color: #d6e5df; font-size: .59rem; }
+/* Lifted over the bottom bar, which shares the centre line while driving. */
+.world-controls.steering { bottom: 86px; }
 .race-legend { position: absolute; right: 18px; bottom: 10px; display: flex; gap: 12px; color: #fff; font-size: .61rem; font-weight: 900; text-shadow: 0 2px #24464b; }
 
 /* ---- Racer picker, standings, controls, podium ---- */
@@ -161,7 +163,10 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 .picker-list b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #dcebdd; color: #38705c; font-size: .8rem; }
 .picker-list button.chosen b { background: #4f9e65; color: #fff; }
 
-.lap-chip { margin-left: auto; padding: 3px 8px; border-radius: 99px; background: #4f9e65; color: #fff; font-style: normal; font-size: .58rem; font-weight: 900; letter-spacing: .5px; }
+.leaderboard-head strong { margin-right: auto; }
+.lap-chip { padding: 3px 8px; border-radius: 99px; background: #4f9e65; color: #fff; font-style: normal; font-size: .58rem; font-weight: 900; letter-spacing: .5px; }
+.standings-toggle { width: 26px; height: 26px; flex: none; border: 0; border-radius: 8px; background: #dcebdd; color: #38705c; font-size: .78rem; font-weight: 900; }
+.standings-toggle:hover { background: #cbe2ce; }
 .leaderboard ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
 .leaderboard li { display: grid; grid-template-columns: 24px 16px 1fr auto; align-items: center; gap: 7px; padding: 5px 6px; border-radius: 10px; background: #f4f8ef; }
 .leaderboard li.done { background: #e4f4e6; }
@@ -180,9 +185,17 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 .race-controls { position: absolute; z-index: 4; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
 .race-controls button { border: 0; border-radius: 14px; font-weight: 900; color: #fff; padding: 0 18px; min-height: 50px; box-shadow: 0 5px 0 #00000033; }
 .race-controls button:active { transform: translateY(3px); box-shadow: 0 2px 0 #00000033; }
-.race-go { background: #e0574f; font-size: 1.1rem; letter-spacing: .5px; }
-.race-go:disabled { background: #9aa6a2; cursor: not-allowed; box-shadow: 0 5px 0 #00000022; }
-.mobile-race-go { display: none; }
+/* Pinned to the foot of the scrolling options panel, so choosing a track can
+   never push the way to start a race out of sight. */
+.picker-race-go {
+  position: sticky; bottom: -12px; z-index: 1;
+  display: block; width: 100%; min-height: 50px; margin-top: 11px;
+  border: 0; border-radius: 14px; background: #e0574f; color: #fff;
+  font-weight: 900; font-size: 1.05rem; letter-spacing: .5px;
+  box-shadow: 0 5px 0 #9e3934, 0 -8px 12px #fffdf1;
+}
+.picker-race-go:active { transform: translateY(3px); box-shadow: 0 2px 0 #9e3934; }
+.picker-race-go:disabled { background: #9aa6a2; cursor: not-allowed; box-shadow: 0 5px 0 #6e7774; }
 .race-reset { background: #3d7f92; }
 .race-follow { background: #57616b; }
 .race-follow.on { background: #4f9e65; }
@@ -196,15 +209,14 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 }
 .race-steer button {
   pointer-events: auto; touch-action: none;
-  width: min(34vw, 150px); height: min(19vh, 104px);
-  border: 5px solid #fff; border-radius: 26px;
-  background: #f0a63dee; color: #fff;
-  font-size: clamp(2.1rem, 8vw, 3.1rem); line-height: 1;
-  box-shadow: 0 7px 0 #b1701d;
+  width: min(30vw, 132px); height: min(15vh, 86px);
+  border: 5px solid #fff; border-radius: 24px;
+  /* Slightly see-through: the track keeps running underneath the pads. */
+  background: #f0a63dd9; color: #fff;
+  font-size: clamp(1.9rem, 7vw, 2.8rem); line-height: 1;
+  box-shadow: 0 7px 0 #b1701dcc;
 }
-.race-steer button:active { transform: translateY(5px); box-shadow: 0 2px 0 #b1701d; }
-/* Lifted clear of the pads while driving; on desktop they sit side by side. */
-.race-controls.driving { bottom: calc(min(19vh, 104px) + 34px + env(safe-area-inset-bottom)); }
+.race-steer button:active { transform: translateY(5px); box-shadow: 0 2px 0 #b1701dcc; }
 
 .countdown { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .countdown span { font: 800 clamp(5rem, 18vw, 11rem)/1 'Baloo 2'; color: #fff; text-shadow: 0 7px 0 #1c4a52, 0 0 40px #0f343c88; animation: countPop .8s ease-out; }
@@ -232,8 +244,28 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 
 @media (min-width: 780px) {
   /* Arrow keys work here, so the pads shrink out of the way of the world. */
-  .race-steer button { width: 118px; height: 76px; font-size: 2rem; }
-  .race-controls.driving { bottom: 22px; }
+  .race-steer button { width: 112px; height: 72px; font-size: 1.9rem; }
+}
+
+/*
+ * Driving on a phone. The bottom of the screen belongs to the thumbs, so the
+ * standings and the race buttons both move up under the header and shrink —
+ * previously the standings panel sat at bottom:84px and covered the top of the
+ * steering pads.
+ */
+@media (max-width: 779px) {
+  /* The course name is setup dressing; racing needs the space for the HUD. */
+  .race-app.running .race-header > div { display: none; }
+
+  .leaderboard.driving { top: 58px; bottom: auto; left: 9px; right: 116px; width: auto; max-height: 42vh; overflow-y: auto; padding: 8px; }
+  .leaderboard.driving .leaderboard-head { padding-bottom: 6px; }
+  .leaderboard.driving ol { grid-template-columns: 1fr; }
+
+  .race-controls.driving {
+    position: fixed; top: 58px; bottom: auto; right: 9px; left: auto;
+    transform: none; width: auto; flex-direction: column; align-items: stretch; gap: 6px;
+  }
+  .race-controls.driving button { flex: none; min-height: 34px; padding: 0 10px; font-size: .64rem; }
 }
 
 @media (max-width: 840px) {
@@ -259,14 +291,12 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
   .world-controls { display: none; }
 
   .racer-picker, .leaderboard { top: auto; bottom: 84px; left: 9px; right: 9px; width: auto; padding: 10px; }
-  .racer-picker { max-height: calc(100vh - 150px); }
-  .picker-list { max-height: 26vh; grid-template-columns: 1fr 1fr; }
+  /* Nothing sits under the options panel during setup any more, so it gets the
+     whole screen height and keeps its start button pinned to the bottom. */
+  .racer-picker { bottom: 10px; max-height: calc(100vh - 108px); }
+  .picker-list { max-height: 24vh; grid-template-columns: 1fr 1fr; }
   .mode-picker small { display: none; }
-  .mobile-race-go { display: block; width: 100%; min-height: 48px; margin-top: 9px; border: 0; border-radius: 13px; background: #e0574f; color: #fff; font-weight: 900; font-size: 1rem; box-shadow: 0 5px 0 #9e3934; }
-  .mobile-race-go:disabled { background: #9aa6a2; box-shadow: 0 5px 0 #6e7774; }
   .leaderboard ol { grid-template-columns: 1fr 1fr; }
   .race-controls { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); gap: 7px; width: calc(100vw - 18px); }
   .race-controls button { flex: 1; min-height: 46px; padding: 0 10px; font-size: .82rem; }
-  .race-go { font-size: .95rem; }
-  .race-controls .race-go { display: none; }
 }
