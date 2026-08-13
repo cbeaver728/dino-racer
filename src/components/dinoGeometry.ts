@@ -17,8 +17,13 @@ export interface BodyDims {
  * sags between the limbs, and both ends taper so the neck and tail can meet the
  * torso without a step. A plain ellipsoid gave every dinosaur the same egg.
  */
-const RIB_HEIGHT = [0.16, 0.46, 0.74, 0.92, 1.0, 1.0, 0.95, 0.84, 0.66, 0.44]
-const RIB_WIDTH = [0.14, 0.42, 0.7, 0.9, 1.0, 0.99, 0.92, 0.78, 0.58, 0.36]
+/*
+ * The rear stations carry more of the body than they used to. Racing is watched
+ * from behind, and tapering this hard straight out of the hips gave every
+ * dinosaur a pinched rump with the legs hanging off nothing.
+ */
+const RIB_HEIGHT = [0.16, 0.54, 0.82, 0.95, 1.0, 1.0, 0.95, 0.84, 0.66, 0.44]
+const RIB_WIDTH = [0.14, 0.52, 0.8, 0.94, 1.0, 0.99, 0.92, 0.78, 0.58, 0.36]
 const SPINE_RISE = [0.2, 0.12, 0.04, -0.02, -0.05, -0.05, -0.01, 0.06, 0.14, 0.22]
 
 /** Catmull-Rom through evenly spaced control values, t in 0..1. */

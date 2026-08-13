@@ -237,6 +237,29 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
 }
 
 /**
+ * The muscle over the hip socket, drawn outside the swinging leg so it stays put
+ * while the limb moves under it.
+ *
+ * This is what a racing dinosaur is mostly seen from, and without it the legs
+ * met the torso at a hard join with a gap either side of the tail. It also
+ * bulges a little proud of the flank, which is what gives the back view a
+ * silhouette instead of an outline.
+ */
+function Haunch({ x, y, z, radius, palette }: {
+  x: number; y: number; z: number; radius: number; palette: DinoPalette
+}) {
+  return (
+    <mesh
+      position={[x - radius * 0.16, y + radius * 0.12, z * 0.82]}
+      scale={[0.86, 1.02, 0.8]}
+    >
+      <sphereGeometry args={[radius, 28, 20]} />
+      <Skin color={palette.base} />
+    </mesh>
+  )
+}
+
+/**
  * The outer group sits at the hip so the leg can swing about it; everything
  * inside is offset back down to the ground. Rotating a group rooted at the foot
  * would pivot the leg around its toes instead.
@@ -377,6 +400,8 @@ export function Dinosaur({ config, gait }: {
   const hindRight = useRef<THREE.Group>(null)
   const frontLeft = useRef<THREE.Group>(null)
   const frontRight = useRef<THREE.Group>(null)
+  /** Running phases, advanced per frame so a speed change never jumps them. */
+  const gaitPhase = useRef({ stride: 0, tail: 0, neck: 0 })
 
   const palette = useMemo(
     () => buildPalette(config.color, config.patternColor),
@@ -475,7 +500,9 @@ export function Dinosaur({ config, gait }: {
   }), `neck-${config.head}-${dims.halfLength}-${dims.halfHeight}-${headScale}`)
   const neckMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
 
-  const tailStartRadius = tailBase.radiusY * 1.02
+  // Proud of the body it leaves, so the join reads as a tail root rather than a
+  // tube pushed into a hole. From directly behind this is most of what is seen.
+  const tailStartRadius = tailBase.radiusY * 1.12
   const tailGeometry = useDisposable(() => createTubeGeometry({
     from: [0, 0, 0],
     control: [-tailLength * 0.5, tailLength * 0.13, 0],
@@ -483,7 +510,7 @@ export function Dinosaur({ config, gait }: {
     startRadius: tailStartRadius,
     endRadius: 0.045,
     falloff: 0.82,
-    flatten: 0.82,
+    flatten: 0.9,
     segments: 36,
   }), `tail-${tailLength}-${tailStartRadius}`)
   const tailMaterial = useSkinMaterial(skinOptions, [tailBase.x, tailBase.centerY, 0])
@@ -499,13 +526,29 @@ export function Dinosaur({ config, gait }: {
     })
   }, [config])
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, rawDelta) => {
     const time = clock.elapsedTime
+    const delta = Math.min(rawDelta, 0.05)
     const run = Math.min(1, Math.max(0, gait?.current ?? 0))
+
+    /*
+     * Gait phases advance by the frame's own step rather than being recomputed
+     * as elapsed time times the current frequency.
+     *
+     * The old `time * (5 + run * 7)` made the phase jump every time the speed
+     * changed, and the jump grew with elapsed time: half a minute into a race a
+     * terrain change or a star boost moved the phase by radians in a single
+     * frame, so the legs whipped round instead of swinging. Accumulating keeps
+     * the stride continuous no matter how the speed moves.
+     */
+    const phase = gaitPhase.current
+    phase.stride += delta * (5 + run * 7)
+    phase.tail += delta * (1.8 + run * 4)
+    phase.neck += delta * (1.6 + run * 3)
 
     // Legs swing about the hips on a diagonal gait; the pair on one diagonal
     // reaches forward while the other drives back.
-    const stride = time * (5 + run * 7)
+    const stride = phase.stride
     const swing = run * 0.62
     const bounce = run * 0.09
     if (hindLeft.current) hindLeft.current.rotation.z = Math.sin(stride) * swing
@@ -518,17 +561,30 @@ export function Dinosaur({ config, gait }: {
         + Math.abs(Math.sin(stride)) * bounce
       root.current.rotation.z = Math.sin(time * 1.4) * 0.012 - run * 0.05
     }
-    if (tail.current) tail.current.rotation.y = Math.sin(time * (1.8 + run * 4)) * (0.09 + run * 0.12)
+    if (tail.current) tail.current.rotation.y = Math.sin(phase.tail) * (0.09 + run * 0.12)
     if (neck.current) {
-      neck.current.rotation.z = Math.sin(time * (1.6 + run * 3) + 0.6) * (0.035 + run * 0.03)
+      neck.current.rotation.z = Math.sin(phase.neck + 0.6) * (0.035 + run * 0.03)
       neck.current.rotation.y = Math.sin(time * 0.9) * 0.05 * (1 - run)
     }
   })
 
   const legZ = hip.radiusZ * 0.95
+  // Big enough to bridge the hip, capped so a short-legged build does not get a
+  // haunch taller than the leg it sits on.
+  const haunchRadius = Math.min(hip.radiusY * 0.66, Math.max(0.2, hindDraw * 0.62))
 
   return (
     <group ref={root} position={[0, 0.04, 0]}>
+      {[-1, 1].map((side) => (
+        <Haunch
+          key={`haunch-${side}`}
+          x={hipWorld.x}
+          y={hindDraw}
+          z={side * legZ}
+          radius={haunchRadius}
+          palette={palette}
+        />
+      ))}
       {[-1, 1].map((side) => (
         <GroundLeg
           key={`hind-${side}`}

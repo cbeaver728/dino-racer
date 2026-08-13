@@ -334,16 +334,23 @@ export default function RaceWorldApp() {
         <div><strong>Race the rivals</strong><small>Fills the grid up to {GRID_TARGET} dinosaurs</small></div>
       </button>
 
-      {/* Sticks to the foot of the panel. It used to sit in the bottom bar and
-          be hidden on narrow screens, which left the button buried below a
-          scroll on a short window with no way to see it. */}
+    </aside>}
+
+    {/*
+      Its own bar, outside the options panel.
+      Inside the panel it was subject to the panel's scrolling and clipping, and
+      the panel's own backdrop-filter makes it a containing block, so even a
+      fixed button would have been trapped in it. Out here it is simply always
+      on screen, under the options at every size.
+    */}
+    {!started && <div className="race-start-bar">
       <button
         className="picker-race-go"
         type="button"
         disabled={selected.length === 0 && !useRivals}
         onClick={startRace}
       >🏁 START RACE</button>
-    </aside>}
+    </div>}
 
     {started && standings.length > 0 && <aside
       className={`leaderboard${driving ? ' driving' : ''}${standingsOpen ? '' : ' collapsed'}`}

@@ -2,9 +2,18 @@
 
 :root { font-family: Nunito, system-ui, sans-serif; color: #183d46; background: #234d54; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+/*
+ * A phone's address bar grows and shrinks as you scroll, and both `100%` and
+ * `100vh` resolve against the tallest layout it ever has. Anything anchored to
+ * the bottom then sits below the glass — which is where the start button went.
+ * `dvh` tracks the viewport that is actually on screen.
+ */
+@supports (height: 100dvh) {
+  html, body, #root { height: 100dvh; }
+}
 /* Driving makes the whole surface a control; stop long-press selection and pull-to-refresh. */
 body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
-.race-app { box-sizing: border-box; width: 100%; height: 100%; min-height: 100vh; overflow: hidden; position: relative; padding: 18px; background: #78a956; }
+.race-app { box-sizing: border-box; width: 100%; height: 100%; overflow: hidden; position: relative; padding: 18px; background: #78a956; }
 .race-app * { box-sizing: border-box; }
 .race-app button { font: inherit; cursor: pointer; touch-action: manipulation; }
 .race-world { position: absolute; inset: 0; z-index: 0; }
@@ -83,8 +92,17 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
   box-shadow: 0 7px 0 #173d4266, 0 15px 35px #183f4530; backdrop-filter: blur(7px);
   padding: 12px;
 }
-/* Track, mode, racers and rivals all live here now, so it has to be able to scroll. */
-.racer-picker { left: max(18px, calc((100vw - 1240px) / 2)); max-height: calc(100vh - 160px); overflow-y: auto; }
+/*
+ * Track, mode, racers and rivals all live here now, so it scrolls. Its height
+ * comes from being pinned top and bottom rather than from a viewport unit, so
+ * it cannot outgrow the screen it is measured against.
+ */
+.racer-picker {
+  left: max(18px, calc((100vw - 1240px) / 2)); overflow-y: auto;
+  /* Percentages resolve against the app box, which is already sized in dvh, so
+     the panel shrinks to its content and still never reaches the start bar. */
+  max-height: calc(100% - 206px);
+}
 .leaderboard { right: max(18px, calc((100vw - 1240px) / 2)); }
 
 .picker-head, .leaderboard-head { display: flex; gap: 8px; align-items: center; padding: 0 2px 9px; }
@@ -185,14 +203,18 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 .race-controls { position: absolute; z-index: 4; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
 .race-controls button { border: 0; border-radius: 14px; font-weight: 900; color: #fff; padding: 0 18px; min-height: 50px; box-shadow: 0 5px 0 #00000033; }
 .race-controls button:active { transform: translateY(3px); box-shadow: 0 2px 0 #00000033; }
-/* Pinned to the foot of the scrolling options panel, so choosing a track can
-   never push the way to start a race out of sight. */
+/* Always-on-screen start bar, sitting directly under the options panel. */
+.race-start-bar {
+  position: absolute; z-index: 5;
+  left: max(18px, calc((100vw - 1240px) / 2));
+  bottom: 24px;
+  width: min(286px, calc(100vw - 36px));
+}
 .picker-race-go {
-  position: sticky; bottom: -12px; z-index: 1;
-  display: block; width: 100%; min-height: 50px; margin-top: 11px;
-  border: 0; border-radius: 14px; background: #e0574f; color: #fff;
-  font-weight: 900; font-size: 1.05rem; letter-spacing: .5px;
-  box-shadow: 0 5px 0 #9e3934, 0 -8px 12px #fffdf1;
+  display: block; width: 100%; min-height: 56px;
+  border: 0; border-radius: 15px; background: #e0574f; color: #fff;
+  font-weight: 900; font-size: 1.1rem; letter-spacing: .5px;
+  box-shadow: 0 5px 0 #9e3934;
 }
 .picker-race-go:active { transform: translateY(3px); box-shadow: 0 2px 0 #9e3934; }
 .picker-race-go:disabled { background: #9aa6a2; cursor: not-allowed; box-shadow: 0 5px 0 #6e7774; }
@@ -291,9 +313,11 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
   .world-controls { display: none; }
 
   .racer-picker, .leaderboard { top: auto; bottom: 84px; left: 9px; right: 9px; width: auto; padding: 10px; }
-  /* Nothing sits under the options panel during setup any more, so it gets the
-     whole screen height and keeps its start button pinned to the bottom. */
-  .racer-picker { bottom: 10px; max-height: calc(100vh - 108px); }
+  /* Below the header, capped short of the start bar: no viewport maths involved. */
+  .racer-picker { top: 56px; bottom: auto; max-height: calc(100% - 140px); }
+  /* The panel names the chosen track already, so the banner is just in the way. */
+  .race-header > div { display: none; }
+  .race-start-bar { left: 9px; right: 9px; width: auto; bottom: max(12px, env(safe-area-inset-bottom)); }
   .picker-list { max-height: 24vh; grid-template-columns: 1fr 1fr; }
   .mode-picker small { display: none; }
   .leaderboard ol { grid-template-columns: 1fr 1fr; }

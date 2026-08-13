@@ -2,6 +2,11 @@
 
 :root { font-family: Nunito, system-ui, sans-serif; color: #17364a; background: #2b6d8f; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+/* Track the on-screen viewport, not the tallest one: a phone's address bar
+   otherwise pushes the steering pads below the glass. */
+@supports (height: 100dvh) {
+  html, body, #root { height: 100dvh; }
+}
 /* The whole surface is a control; stop long-press selection and pull-to-refresh. */
 body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
 
