@@ -90,11 +90,11 @@ function Eye({ side, shape, palette }: {
 function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; scale: number }) {
   const shape = headShape(type)
   const skull = useDisposable(
-    () => createSweptGeometry(shape.skull, shape.dims, 36, 26),
+    () => createSweptGeometry(shape.skull, shape.dims, 40, 34),
     `skull-${type}`,
   )
   const jaw = useDisposable(
-    () => createSweptGeometry(shape.jaw, shape.jawDims, 32, 22),
+    () => createSweptGeometry(shape.jaw, shape.jawDims, 36, 28),
     `jaw-${type}`,
   )
 
@@ -245,18 +245,45 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
  * bulges a little proud of the flank, which is what gives the back view a
  * silhouette instead of an outline.
  */
-function Haunch({ x, y, z, radius, palette }: {
-  x: number; y: number; z: number; radius: number; palette: DinoPalette
+function Haunch({ x, y, z, radius, material }: {
+  x: number; y: number; z: number; radius: number; material: THREE.Material
 }) {
   return (
     <mesh
       position={[x - radius * 0.16, y + radius * 0.12, z * 0.82]}
       scale={[0.86, 1.02, 0.8]}
+      material={material}
     >
-      <sphereGeometry args={[radius, 28, 20]} />
-      <Skin color={palette.base} />
+      <sphereGeometry args={[radius, 30, 22]} />
     </mesh>
   )
+}
+
+/** Where the limb stops and the foot takes over. */
+const ankleHeight = (height: number) => height * 0.14
+
+/**
+ * A whole limb as one tapered tube from hip socket to ankle.
+ *
+ * It used to be a sphere for the thigh stacked on a cone for the shin: two hard
+ * silhouette breaks where the shapes crossed, and a flat cylinder end sitting in
+ * the foot. Sweeping one curve through the leg gives a continuous outline, and
+ * the slight forward lean of the control point puts a knee in it.
+ */
+function createLegGeometry(height: number) {
+  const chunk = Math.min(height, 1.2)
+  return createTubeGeometry({
+    from: [0, height, 0],
+    control: [height * 0.13, height * 0.46, 0],
+    to: [0, ankleHeight(height), 0],
+    startRadius: 0.22 + chunk * 0.08,
+    endRadius: 0.1 + chunk * 0.03,
+    falloff: 0.78,
+    // Legs are a little narrower across than front-to-back, like the tail.
+    flatten: 0.88,
+    segments: 26,
+    radial: 28,
+  })
 }
 
 /**
@@ -264,23 +291,25 @@ function Haunch({ x, y, z, radius, palette }: {
  * inside is offset back down to the ground. Rotating a group rooted at the foot
  * would pivot the leg around its toes instead.
  */
-function GroundLeg({ x, z, height, palette, foot, swing }: {
+function GroundLeg({ x, z, height, palette, foot, geometry, material, swing }: {
   x: number
   z: number
   height: number
   palette: DinoPalette
   foot: FootType
+  geometry: THREE.BufferGeometry
+  material: THREE.Material
   swing?: RefObject<THREE.Group | null>
 }) {
+  const ankle = ankleHeight(height)
   return (
     <group position={[x, height, z]} ref={swing}>
       <group position={[0, -height, 0]}>
-        <mesh position={[0, height * 0.7, 0]} scale={[0.46, 0.56 + height * 0.08, 0.5]}>
-          <sphereGeometry args={[0.62, 30, 22]} />
-          <Skin color={palette.base} />
-        </mesh>
-        <mesh position={[0, height * 0.33, 0]}>
-          <cylinderGeometry args={[0.23, 0.145, height * 0.8, 26]} />
+        <mesh geometry={geometry} material={material} />
+        {/* Knuckle at the ankle, so the taper meets the foot in a joint rather
+            than an edge. */}
+        <mesh position={[0, ankle, 0]} scale={[1, 0.84, 0.94]}>
+          <sphereGeometry args={[0.15 + Math.min(height, 1.2) * 0.02, 24, 18]} />
           <Skin color={palette.shade} />
         </mesh>
         <Foot type={foot} palette={palette} />
@@ -374,9 +403,14 @@ function BackFeature({ config, palette, dims }: {
           <mesh
             key={u}
             position={[slice.x, slice.centerY + slice.radiusY + height * 0.3, 0]}
-            scale={plates ? [1, 1, 0.26] : [1, 1, 1]}
+            // Plates are a rounded, flattened leaf rather than a three-sided
+            // cone. The cone only had three faces, so every plate showed two
+            // hard edges and a flat face — the crudest shape on the dinosaur.
+            scale={plates ? [0.62, 0.66, 0.15] : [1, 1, 1]}
           >
-            <coneGeometry args={[plates ? 0.42 : 0.17, height, plates ? 3 : 22]} />
+            {plates
+              ? <sphereGeometry args={[height, 26, 18]} />
+              : <coneGeometry args={[0.17, height, 22]} />}
             <Skin color={plates && index % 2 === 1 ? palette.patternSoft : palette.pattern} />
           </mesh>
         )
@@ -487,6 +521,23 @@ export function Dinosaur({ config, gait }: {
     () => createBodyGeometry(dims),
     `body-${dims.halfLength}-${dims.halfHeight}-${dims.halfWidth}`,
   )
+  // One geometry per limb length, shared by the pair that uses it.
+  const hindLegGeometry = useDisposable(() => createLegGeometry(hindDraw), `hind-leg-${hindDraw.toFixed(3)}`)
+  const frontLegGeometry = useDisposable(() => createLegGeometry(frontDraw), `front-leg-${frontDraw.toFixed(3)}`)
+
+  /*
+   * Limbs wear the same hide as the torso.
+   *
+   * They used to be painted a flat base colour, so a spotted or striped
+   * dinosaur had a patterned body bolted onto plain legs — the seam was obvious
+   * and it was most of what made the build look unfinished. The offsets place
+   * each part back into the body's pattern space so the markings run on across
+   * the join. The two sides of a pair share an offset: only the stripe wobble
+   * depends on z, and it is far too small to see.
+   */
+  const hindLegMaterial = useSkinMaterial(skinOptions, [hipWorld.x, 0, 0])
+  const frontLegMaterial = useSkinMaterial(skinOptions, [frontWorld.x, 0, 0])
+  const haunchMaterial = useSkinMaterial(skinOptions, [hipWorld.x, hindDraw, 0])
   const bodyMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
 
   const neckGeometry = useDisposable(() => createTubeGeometry({
@@ -508,10 +559,22 @@ export function Dinosaur({ config, gait }: {
     control: [-tailLength * 0.5, tailLength * 0.13, 0],
     to: [-tailLength, tailLength * 0.05, 0],
     startRadius: tailStartRadius,
-    endRadius: 0.045,
-    falloff: 0.82,
-    flatten: 0.9,
-    segments: 36,
+    endRadius: 0.04,
+    /*
+     * Above 1 the tail holds its thickness out of the hips before tapering,
+     * which is how a real one carries its muscle. Below 1 it shed most of its
+     * width in the first fraction of its length and the rest read as a whip.
+     */
+    falloff: 1.18,
+    /*
+     * Deeper than it is wide, the way a real tail is built. Seen from directly
+     * behind — which is most of a race — a round tube reads as a length of pipe;
+     * a standing oval reads as an animal. Paired with the 1.12 root above this
+     * also lands the tail's width almost exactly on the body's at the join.
+     */
+    flatten: 0.78,
+    segments: 44,
+    radial: 34,
   }), `tail-${tailLength}-${tailStartRadius}`)
   const tailMaterial = useSkinMaterial(skinOptions, [tailBase.x, tailBase.centerY, 0])
 
@@ -582,7 +645,7 @@ export function Dinosaur({ config, gait }: {
           y={hindDraw}
           z={side * legZ}
           radius={haunchRadius}
-          palette={palette}
+          material={haunchMaterial}
         />
       ))}
       {[-1, 1].map((side) => (
@@ -593,6 +656,8 @@ export function Dinosaur({ config, gait }: {
           height={hindDraw}
           palette={palette}
           foot={config.feet}
+          geometry={hindLegGeometry}
+          material={hindLegMaterial}
           swing={side < 0 ? hindLeft : hindRight}
         />
       ))}
@@ -604,6 +669,8 @@ export function Dinosaur({ config, gait }: {
           height={frontDraw}
           palette={palette}
           foot={config.feet}
+          geometry={frontLegGeometry}
+          material={frontLegMaterial}
           swing={side < 0 ? frontLeft : frontRight}
         />
       ))}

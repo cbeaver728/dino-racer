@@ -251,31 +251,46 @@ function StartGate({ course }: { course: Course }) {
   </group>
 }
 
-/** Where the wide view sits: high and back enough to hold the whole circuit. */
-const OVERVIEW = [29, 31, 36] as const
+/** High and back enough to hold the whole circuit in frame. */
+export const OVERVIEW_VIEW = [29, 31, 36] as const
+
+/**
+ * The offset the leader is followed from. Orbit controls keep the camera the
+ * same distance from their target as it moves, so this is a tracking shot: far
+ * enough out to see the road ahead and who is closing, rather than a close chase.
+ */
+export const FOLLOW_VIEW = [23, 25, 28] as const
 
 /**
  * Free orbit until a race is on, then it eases its target onto the leader so the
  * pack stays framed without taking the camera away from the player.
  */
-function CourseCamera({ follow, resetView }: { follow?: THREE.Vector3 | null; resetView?: number }) {
+function CourseCamera({ follow, resetView, resetOffset }: {
+  follow?: THREE.Vector3 | null
+  resetView?: number
+  resetOffset?: readonly [number, number, number]
+}) {
   const camera = useThree((state) => state.camera)
   const controls = useRef<{ target: THREE.Vector3; update: () => void } | null>(null)
 
   /*
-   * Snap back to the wide shot when the caller bumps `resetView`.
+   * Snap to a known distance when the caller bumps `resetView`.
    *
    * The chase camera moves the shared camera itself, so simply switching back to
-   * free orbit would leave it parked wherever the chase left it — a foot behind
-   * a dinosaur, which is not a view of a race track.
+   * orbit would leave it parked wherever the chase left it — a foot behind a
+   * dinosaur, which is not a view of a race track. The offset is also what the
+   * leader is then followed at, since orbit controls hold it as the target moves.
    */
   useEffect(() => {
     if (resetView === undefined) return
-    camera.position.set(OVERVIEW[0], OVERVIEW[1], OVERVIEW[2])
+    const offset = resetOffset ?? OVERVIEW_VIEW
+    camera.position.set(offset[0], offset[1], offset[2])
     if (controls.current) {
       controls.current.target.set(0, 0, 0)
       controls.current.update()
     }
+    // resetOffset is read at the moment the counter changes, by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetView, camera])
 
   useFrame(() => {
@@ -331,13 +346,14 @@ function ChaseCamera({ target }: { target: ChaseTarget }) {
   return null
 }
 
-export function RaceWorld({ course, children, follow, chase, resetView }: {
+export function RaceWorld({ course, children, follow, chase, resetView, resetOffset }: {
   course: Course
   children?: ReactNode
   follow?: THREE.Vector3 | null
   chase?: ChaseTarget | null
-  /** Bump to snap the free camera back to the wide shot. */
+  /** Bump to snap the orbit camera to `resetOffset`. */
   resetView?: number
+  resetOffset?: readonly [number, number, number]
 }) {
   return <Canvas shadows camera={{ position: [29, 31, 36], fov: 39 }} dpr={[1, 1.6]}>
     <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 60, 102]} />
@@ -354,6 +370,6 @@ export function RaceWorld({ course, children, follow, chase, resetView }: {
       <StartGate course={course} />
       {children}
     </group>
-    {chase ? <ChaseCamera target={chase} /> : <CourseCamera follow={follow} resetView={resetView} />}
+    {chase ? <ChaseCamera target={chase} /> : <CourseCamera follow={follow} resetView={resetView} resetOffset={resetOffset} />}
   </Canvas>
 }

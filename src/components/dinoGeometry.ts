@@ -93,7 +93,9 @@ export function createSweptGeometry(
   profile: SweptProfile,
   dims: BodyDims,
   segments = 46,
-  radial = 30,
+  // These are small meshes on a handful of dinosaurs, and the silhouette is the
+  // whole read at toy scale, so the rings are dense enough not to show corners.
+  radial = 40,
 ) {
   const positions: number[] = []
   const indices: number[] = []
@@ -172,7 +174,7 @@ export interface TubeOptions {
  * overlapping spheres breaks into visible beads once the taper goes thin.
  */
 export function createTubeGeometry({
-  from, control, to, startRadius, endRadius, falloff = 1, flatten = 1, segments = 30, radial = 18,
+  from, control, to, startRadius, endRadius, falloff = 1, flatten = 1, segments = 30, radial = 30,
 }: TubeOptions) {
   const a = new THREE.Vector3(...from)
   const c = new THREE.Vector3(...control)

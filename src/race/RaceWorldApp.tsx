@@ -17,7 +17,7 @@ import {
   standingsOf,
   type RacerState,
 } from './raceEngine'
-import { RaceWorld } from './RaceWorld'
+import { FOLLOW_VIEW, OVERVIEW_VIEW, RaceWorld } from './RaceWorld'
 import { Racers } from './Racers'
 import { ReplayRacers } from './ReplayRacers'
 import {
@@ -77,8 +77,12 @@ export default function RaceWorldApp() {
   const [replayTime, setReplayTime] = useState(0)
   const [replayPlaying, setReplayPlaying] = useState(true)
   const [replaySpeed, setReplaySpeed] = useState<number>(REPLAY_SPEEDS[0])
-  /** Bumped to snap the free camera back to the wide shot. */
-  const [resetView, setResetView] = useState(0)
+  /** Bumped to snap the orbit camera to a known distance, with the offset to use. */
+  const [view, setView] = useState<{ key: number; offset: readonly [number, number, number] }>(
+    { key: 0, offset: OVERVIEW_VIEW },
+  )
+  const snapView = (offset: readonly [number, number, number]) =>
+    setView((current) => ({ key: current.key + 1, offset }))
 
   /**
    * Camera: free orbit, locked to the leader, or riding behind one racer. Held
@@ -121,9 +125,10 @@ export default function RaceWorldApp() {
     const order = ['free', 'leader', ...ids]
     const at = order.indexOf(current)
     const next = order[(at + 1) % order.length]
-    // Coming back to free from a chase would otherwise leave the camera parked
-    // a few feet behind a dinosaur, which does not read as a free camera.
-    if (next === 'free') setResetView((count) => count + 1)
+    // Coming back from a chase would otherwise leave the camera parked a few
+    // feet behind a dinosaur, which reads as neither free nor following.
+    if (next === 'free') snapView(OVERVIEW_VIEW)
+    if (next === 'leader') snapView(FOLLOW_VIEW)
     return next
   })
   const chasedName = racers.current.find((racer) => racer.id === cameraMode)?.name
@@ -247,10 +252,11 @@ export default function RaceWorldApp() {
     setReplaySpeed(REPLAY_SPEEDS[0])
     setPodiumOpen(false)
     setPhase('replay')
-    // Open on the whole circuit, so the replay starts by showing the race rather
-    // than one dinosaur's back. The camera button rides along with any of them.
-    setCameraMode('free')
-    setResetView((count) => count + 1)
+    // Tracking the leader from a long way out: you can see who is closing and
+    // where the road goes, which a close chase behind one dinosaur cannot show.
+    // The camera button still cycles to free orbit or behind any of them.
+    setCameraMode('leader')
+    snapView(FOLLOW_VIEW)
   }
 
   const exitReplay = () => {
@@ -392,7 +398,8 @@ export default function RaceWorldApp() {
         course={course}
         follow={cameraMode === 'leader' && (racing || replaying) ? leader.current : null}
         chase={chasing && started ? chase.current : null}
-        resetView={resetView}
+        resetView={view.key}
+        resetOffset={view.offset}
       >
         {started && !replaying && <Racers
           key={raceKey}
