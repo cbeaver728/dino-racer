@@ -306,12 +306,12 @@ function CourseCamera({ follow, resetView, resetOffset }: {
 // four body lengths back. Pulled back and raised from where it started: this is
 // the view you steer from now, and from lower down the dinosaur filled the frame
 // and a tornado only appeared once it was too late to dodge it.
-const CHASE_BACK = 7.8
-const CHASE_HEIGHT = 3.7
+const CHASE_BACK = 5.6
+const CHASE_HEIGHT = 2.7
 // Aimed down the road rather than at the dinosaur's heels, so the pickups coming
 // up have somewhere to be on screen.
-const CHASE_AHEAD = 3.6
-const CHASE_LOOK_UP = 1.05
+const CHASE_AHEAD = 2.9
+const CHASE_LOOK_UP = 0.85
 
 /** Rides just behind and above one dinosaur, looking down the road ahead of it. */
 function ChaseCamera({ target }: { target: ChaseTarget }) {

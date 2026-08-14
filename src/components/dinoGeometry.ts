@@ -18,13 +18,18 @@ export interface BodyDims {
  * torso without a step. A plain ellipsoid gave every dinosaur the same egg.
  */
 /*
- * The rear stations carry more of the body than they used to. Racing is watched
- * from behind, and tapering this hard straight out of the hips gave every
- * dinosaur a pinched rump with the legs hanging off nothing.
+ * A cartoon pear: widest across the hips, broad and blunt at the tail end,
+ * narrowing toward the shoulders.
+ *
+ * The rear used to taper away to almost nothing, which is what put a rounded
+ * point where the back of the animal should be. Holding the width all the way
+ * out and rounding it off flat is what gives the back view of a toy dinosaur
+ * its wide, flat shield of a silhouette. The spine also sits level at the rear
+ * rather than lifting, so the tail leaves low the way a drawn one does.
  */
-const RIB_HEIGHT = [0.16, 0.54, 0.82, 0.95, 1.0, 1.0, 0.95, 0.84, 0.66, 0.44]
-const RIB_WIDTH = [0.14, 0.52, 0.8, 0.94, 1.0, 0.99, 0.92, 0.78, 0.58, 0.36]
-const SPINE_RISE = [0.2, 0.12, 0.04, -0.02, -0.05, -0.05, -0.01, 0.06, 0.14, 0.22]
+const RIB_HEIGHT = [0.44, 0.84, 0.98, 1.0, 0.99, 0.96, 0.9, 0.82, 0.68, 0.46]
+const RIB_WIDTH = [0.42, 0.86, 1.0, 1.0, 0.98, 0.94, 0.88, 0.78, 0.62, 0.4]
+const SPINE_RISE = [0.02, 0.0, -0.02, -0.05, -0.07, -0.07, -0.03, 0.04, 0.12, 0.2]
 
 /** Catmull-Rom through evenly spaced control values, t in 0..1. */
 function sampleCurve(values: number[], t: number) {

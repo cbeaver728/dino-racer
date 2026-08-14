@@ -57,7 +57,9 @@ float dinoStripes(vec3 p) {
 
 vec3 dinoSkinColor(vec3 rawPos, vec3 n) {
   vec3 p = rawPos + uOffset;
-  float under = smoothstep(-0.75, 0.15, n.y);
+  // A big pale belly that climbs well up the flanks and turns over crisply,
+  // the way a drawn one is a shape rather than a gradient.
+  float under = smoothstep(-0.35, 0.3, n.y);
   vec3 color = mix(uBelly, uBase, under);
 
   float mask = 0.0;

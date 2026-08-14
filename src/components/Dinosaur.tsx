@@ -22,14 +22,33 @@ const BODY_SIZE = {
   Big: [1.9, 1.2, 2.3],
 } as const
 
-// Wide spread on purpose: at 0.75/1.05/1.4 the three choices were nearly
-// indistinguishable, so picking legs felt like it did nothing.
-const LEG_HEIGHT = { Short: 0.5, Normal: 1.05, Long: 1.85 } as const
+/*
+ * Stubby, the way a drawn dinosaur's legs are: the body should look like it is
+ * sitting on its legs rather than standing on stilts. The three choices still
+ * span nearly three to one, so picking legs changes the animal as much as it
+ * ever did — the whole range has just come down.
+ */
+const LEG_HEIGHT = { Short: 0.4, Normal: 0.7, Long: 1.15 } as const
 const FRONT_HEIGHT = {
-  'Short Front Legs': 0.5,
-  'Normal Front Legs': 1.05,
-  'Long Front Legs': 1.85,
+  'Short Front Legs': 0.4,
+  'Normal Front Legs': 0.7,
+  'Long Front Legs': 1.15,
 } as const
+
+/** Big eyes carry most of the charm, so they are drawn well over life size. */
+const EYE_SCALE = 1.4
+
+/**
+ * The tail's taper, shared by the geometry and by anything mounted on it.
+ *
+ * Above 1 the tail holds its thickness out of the hips before tapering, which is
+ * how a real one carries its muscle. Below 1 it shed most of its width in the
+ * first fraction of its length and the rest read as a whip. The spikes used a
+ * different exponent from the tail they sit on, so they drifted off the surface
+ * along its length.
+ */
+const TAIL_FALLOFF = 1.18
+const TAIL_TIP_RADIUS = 0.04
 
 const Skin = ({ color }: { color: string }) => (
   <meshStandardMaterial color={color} roughness={0.48} metalness={0} envMapIntensity={0.55} />
@@ -64,7 +83,8 @@ function Eye({ side, shape, palette }: {
   shape: ReturnType<typeof headShape>
   palette: DinoPalette
 }) {
-  const { x, y, depth, size } = shape.eye
+  const { x, y, depth } = shape.eye
+  const size = shape.eye.size * EYE_SCALE
   return (
     <group position={[x, y, side * depth]}>
       <mesh position={[-0.02, size * 0.62, side * 0.03]} rotation={[0, 0, 0.22]} scale={[1.35, 0.42, 1.05]}>
@@ -233,32 +253,6 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
         </>
       )}
     </group>
-  )
-}
-
-/**
- * The muscle over the hip socket, drawn outside the swinging leg so it stays put
- * while the limb moves under it.
- *
- * This is what a racing dinosaur is mostly seen from, and without it the legs
- * met the torso at a hard join with a gap either side of the tail. It also
- * bulges a little proud of the flank, which is what gives the back view a
- * silhouette instead of an outline.
- */
-function Haunch({ x, y, z, radius, material }: {
-  x: number; y: number; z: number; radius: number; material: THREE.Material
-}) {
-  return (
-    <mesh
-      // Tucked inboard and stretched along the body: a muscle over the hip, not
-      // a ball bolted to it. Near-spherical and sitting proud of the flank, the
-      // pair read from behind as exactly what you would expect them to.
-      position={[x - radius * 0.3, y + radius * 0.04, z * 0.68]}
-      scale={[1.34, 0.88, 0.56]}
-      material={material}
-    >
-      <sphereGeometry args={[radius, 30, 22]} />
-    </mesh>
   )
 }
 
@@ -445,22 +439,31 @@ export function Dinosaur({ config, gait }: {
     [config.color, config.patternColor],
   )
   const bodySize = BODY_SIZE[config.body]
+  /*
+   * Short, and distinctly wider than it is deep.
+   *
+   * A drawn dinosaur is a round body with things attached, not a long barrel.
+   * The width mattering more than the height is the specific thing that makes
+   * the view from behind a broad flat shield instead of the end of a tube: a
+   * cross-section taller than it is wide can only ever read as a ball.
+   */
   const dims: BodyDims = useMemo(() => ({
-    halfLength: bodySize[0] * 0.82,
-    halfHeight: bodySize[1] * 0.72,
-    halfWidth: bodySize[1] * 0.62,
+    halfLength: bodySize[0] * 0.66,
+    halfHeight: bodySize[1] * 0.62,
+    halfWidth: bodySize[1] * 0.8,
   }), [bodySize])
 
   const hindHeight = LEG_HEIGHT[config.hindLegs]
   const biped = isBiped(config)
   const frontHeight = biped ? hindHeight : FRONT_HEIGHT[config.frontLimbs as keyof typeof FRONT_HEIGHT]
-  const tailLength = config.tail === 'Stubby Tail' ? 1.5 : config.tail === 'Giant Tail' ? 3.4 : 2.5
+  // Shorter tails to match the shorter body; the three choices keep their spread.
+  const tailLength = config.tail === 'Stubby Tail' ? 1.0 : config.tail === 'Giant Tail' ? 2.4 : 1.7
 
   const shape = headShape(config.head)
   const longNeck = config.head === 'Brachiosaurus'
-  // A fixed head on a scaling torso looked pin-headed on the Big build. Kids'
-  // toys also read better slightly large-headed, hence the 1.25.
-  const headScale = 1.25 * bodySize[1]
+  // Oversized, but not so far that a triceratops frill or a hadrosaur crest —
+  // both of which scale with it — turns the animal into a mushroom.
+  const headScale = 1.4 * bodySize[1]
   const skullHalf = shape.dims.halfLength * headScale
   // Hind legs carry a biped under its centre of mass, further forward than the
   // hips of a four-legged build.
@@ -540,7 +543,6 @@ export function Dinosaur({ config, gait }: {
    */
   const hindLegMaterial = useSkinMaterial(skinOptions, [hipWorld.x, 0, 0])
   const frontLegMaterial = useSkinMaterial(skinOptions, [frontWorld.x, 0, 0])
-  const haunchMaterial = useSkinMaterial(skinOptions, [hipWorld.x, hindDraw, 0])
   const bodyMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
 
   const neckGeometry = useDisposable(() => createTubeGeometry({
@@ -554,26 +556,29 @@ export function Dinosaur({ config, gait }: {
   }), `neck-${config.head}-${dims.halfLength}-${dims.halfHeight}-${headScale}`)
   const neckMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
 
-  // Proud of the body it leaves, so the join reads as a tail root rather than a
-  // tube pushed into a hole. From directly behind this is most of what is seen.
-  const tailStartRadius = tailBase.radiusY * 1.12
+  /*
+   * A small tail leaving a big rear, not a second body.
+   *
+   * The root used to be taken straight off the torso profile, so now that the
+   * rear is broad it would have come away nearly as thick as the animal. In the
+   * drawings the tail is a modest cone low on a wide backside, so it is capped
+   * against the body's depth rather than following its width.
+   */
+  const tailStartRadius = Math.min(tailBase.radiusY * 0.62, dims.halfHeight * 0.44)
+  /** The tail's half-thickness at t along its length, for mounting spikes. */
+  const tailRadiusAt = (t: number) =>
+    tailStartRadius + (TAIL_TIP_RADIUS - tailStartRadius) * Math.pow(t, TAIL_FALLOFF)
   const tailGeometry = useDisposable(() => createTubeGeometry({
     from: [0, 0, 0],
     control: [-tailLength * 0.5, tailLength * 0.13, 0],
     to: [-tailLength, tailLength * 0.05, 0],
     startRadius: tailStartRadius,
-    endRadius: 0.04,
-    /*
-     * Above 1 the tail holds its thickness out of the hips before tapering,
-     * which is how a real one carries its muscle. Below 1 it shed most of its
-     * width in the first fraction of its length and the rest read as a whip.
-     */
-    falloff: 1.18,
+    endRadius: TAIL_TIP_RADIUS,
+    falloff: TAIL_FALLOFF,
     /*
      * Deeper than it is wide, the way a real tail is built. Seen from directly
      * behind — which is most of a race — a round tube reads as a length of pipe;
-     * a standing oval reads as an animal. Paired with the 1.12 root above this
-     * also lands the tail's width almost exactly on the body's at the join.
+     * a standing oval reads as an animal.
      */
     flatten: 0.78,
     segments: 44,
@@ -634,23 +639,20 @@ export function Dinosaur({ config, gait }: {
     }
   })
 
-  const legZ = hip.radiusZ * 0.95
-  // Big enough to bridge the hip, capped so a short-legged build does not get a
-  // haunch taller than the leg it sits on.
-  const haunchRadius = Math.min(hip.radiusY * 0.66, Math.max(0.2, hindDraw * 0.62))
+  /*
+   * Legs tucked under the body rather than hung off its flanks, and no haunch
+   * over them at all.
+   *
+   * Those two things were what made the back view bulge. A drawn dinosaur puts
+   * its legs close together underneath a wide body, so the widest thing you see
+   * from behind is the body itself and the legs read as two small posts under
+   * it. With the torso this broad the hip joint is covered by the body anyway,
+   * which is what the haunch was there to do.
+   */
+  const legZ = hip.radiusZ * 0.56
 
   return (
     <group ref={root} position={[0, 0.04, 0]}>
-      {[-1, 1].map((side) => (
-        <Haunch
-          key={`haunch-${side}`}
-          x={hipWorld.x}
-          y={hindDraw}
-          z={side * legZ}
-          radius={haunchRadius}
-          material={haunchMaterial}
-        />
-      ))}
       {[-1, 1].map((side) => (
         <GroundLeg
           key={`hind-${side}`}
@@ -668,7 +670,7 @@ export function Dinosaur({ config, gait }: {
         <GroundLeg
           key={`front-${side}`}
           x={frontWorld.x}
-          z={side * frontSlice.radiusZ * 0.95}
+          z={side * frontSlice.radiusZ * 0.62}
           height={frontDraw}
           palette={palette}
           foot={config.feet}
@@ -729,8 +731,11 @@ export function Dinosaur({ config, gait }: {
               [-tailLength, tailLength * 0.05, 0],
               t,
             )
-            const radius = tailStartRadius + (0.045 - tailStartRadius) * Math.pow(t, 0.82)
-            const size = 0.44 - t * 0.16
+            const radius = tailRadiusAt(t)
+            // Sized off the tail they sit on rather than in absolute units, so
+            // a stubby tail gets small spikes instead of the giant ones a fixed
+            // size gave it once tails got shorter.
+            const size = Math.max(0.1, radius * 1.75)
             return (
               <mesh
                 key={t}
