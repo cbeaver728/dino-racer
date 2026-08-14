@@ -250,8 +250,11 @@ function Haunch({ x, y, z, radius, material }: {
 }) {
   return (
     <mesh
-      position={[x - radius * 0.16, y + radius * 0.12, z * 0.82]}
-      scale={[0.86, 1.02, 0.8]}
+      // Tucked inboard and stretched along the body: a muscle over the hip, not
+      // a ball bolted to it. Near-spherical and sitting proud of the flank, the
+      // pair read from behind as exactly what you would expect them to.
+      position={[x - radius * 0.3, y + radius * 0.04, z * 0.68]}
+      scale={[1.34, 0.88, 0.56]}
       material={material}
     >
       <sphereGeometry args={[radius, 30, 22]} />

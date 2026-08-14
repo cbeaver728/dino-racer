@@ -212,13 +212,22 @@ export function createTubeGeometry({
     }
   }
 
+  /*
+   * Wound so the faces look outwards.
+   *
+   * They used to be wound the other way, which left every tube on the dinosaur
+   * inside out — neck, tail and legs. Back-face culling then hid the near wall
+   * and drew the inside of the far one, and `computeVertexNormals` derived its
+   * normals from the same winding, so the surface was lit from within too. The
+   * result read as a pale, translucent, hollow tail.
+   */
   for (let i = 0; i < segments; i++) {
     for (let j = 0; j < radial; j++) {
       const next = (j + 1) % radial
       const ring = i * radial
       const ahead = (i + 1) * radial
-      indices.push(ring + j, ahead + j, ring + next)
-      indices.push(ring + next, ahead + j, ahead + next)
+      indices.push(ring + j, ring + next, ahead + j)
+      indices.push(ring + next, ahead + next, ahead + j)
     }
   }
 
@@ -226,7 +235,7 @@ export function createTubeGeometry({
   positions.push(tip.x, tip.y, tip.z)
   const tipIndex = positions.length / 3 - 1
   for (let j = 0; j < radial; j++) {
-    indices.push(segments * radial + j, tipIndex, segments * radial + ((j + 1) % radial))
+    indices.push(segments * radial + j, segments * radial + ((j + 1) % radial), tipIndex)
   }
 
   const geometry = new THREE.BufferGeometry()
