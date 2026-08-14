@@ -19,10 +19,32 @@ import {
 } from './raceEngine'
 import { RaceWorld } from './RaceWorld'
 import { Racers } from './Racers'
+import { ReplayRacers } from './ReplayRacers'
+import {
+  REPLAY_SPEEDS,
+  createRecorder,
+  emptySample,
+  sampleReplay,
+  type Playback,
+  type Replay,
+  type ReplayRecorder,
+} from './replay'
 import './raceWorld.css'
 
-type Phase = 'setup' | 'countdown' | 'racing' | 'finished'
+type Phase = 'setup' | 'countdown' | 'racing' | 'finished' | 'replay'
 type Mode = 'watch' | 'drive'
+
+/** One row of the standings, from either a live race or a replay. */
+interface BoardRow {
+  id: string
+  name: string
+  color: string
+  driven: boolean
+  place: number | null
+  effect: 'boost' | 'reverse' | null
+  note: string
+  progress: number
+}
 
 /** Racers a grid is topped up to with rivals. Lively without being a crowd. */
 const GRID_TARGET = 4
@@ -50,6 +72,13 @@ export default function RaceWorldApp() {
   const [standingsOpen, setStandingsOpen] = useState(true)
   /** Showing the "final lap" call-out. */
   const [finalLap, setFinalLap] = useState(false)
+  // Replay transport. The playhead itself lives in a ref and is mirrored into
+  // these only a few times a second, for the scrub bar and the buttons.
+  const [replayTime, setReplayTime] = useState(0)
+  const [replayPlaying, setReplayPlaying] = useState(true)
+  const [replaySpeed, setReplaySpeed] = useState<number>(REPLAY_SPEEDS[0])
+  /** Bumped to snap the free camera back to the wide shot. */
+  const [resetView, setResetView] = useState(0)
 
   /**
    * Camera: free orbit, locked to the leader, or riding behind one racer. Held
@@ -60,11 +89,15 @@ export default function RaceWorldApp() {
   const racers = useRef<RacerState[]>([])
   const podiumShown = useRef(false)
   const finalLapShown = useRef(false)
+  const recorder = useRef<ReplayRecorder | null>(null)
+  const replay = useRef<Replay | null>(null)
+  const playback = useRef<Playback>({ time: 0, playing: true, speed: 1 })
   const leader = useRef(new THREE.Vector3())
   const chase = useRef<ChaseTarget>({ position: new THREE.Vector3(), heading: 0, active: false })
 
   const course = COURSES[courseIndex]
   const racing = phase === 'racing'
+  const replaying = phase === 'replay'
   const started = phase !== 'setup'
   const chasing = cameraMode !== 'free' && cameraMode !== 'leader'
 
@@ -82,11 +115,19 @@ export default function RaceWorldApp() {
 
   /** free → leader → behind each racer in turn → back to free. */
   const cycleCamera = () => setCameraMode((current) => {
-    const order = ['free', 'leader', ...racers.current.map((racer) => racer.id)]
+    const ids = replay.current
+      ? replay.current.entries.map((entry) => entry.id)
+      : racers.current.map((racer) => racer.id)
+    const order = ['free', 'leader', ...ids]
     const at = order.indexOf(current)
-    return order[(at + 1) % order.length]
+    const next = order[(at + 1) % order.length]
+    // Coming back to free from a chase would otherwise leave the camera parked
+    // a few feet behind a dinosaur, which does not read as a free camera.
+    if (next === 'free') setResetView((count) => count + 1)
+    return next
   })
   const chasedName = racers.current.find((racer) => racer.id === cameraMode)?.name
+    ?? replay.current?.entries.find((entry) => entry.id === cameraMode)?.name
 
   const startRace = () => {
     // The first real gesture of the session, and the only moment a browser will
@@ -99,6 +140,8 @@ export default function RaceWorldApp() {
     if (!field.length) return
 
     racers.current = createRacers(field, course, driving ? driverId : null)
+    recorder.current = createRecorder(course.def.id, racers.current)
+    replay.current = null
     podiumShown.current = false
     finalLapShown.current = false
     setFinalLap(false)
@@ -117,6 +160,8 @@ export default function RaceWorldApp() {
 
   const resetRace = () => {
     racers.current = []
+    recorder.current = null
+    replay.current = null
     podiumShown.current = false
     finalLapShown.current = false
     setFinalLap(false)
@@ -191,6 +236,63 @@ export default function RaceWorldApp() {
     setStandings(standingsOf(racers.current))
   }, [])
 
+  /** Closes the tape and switches the world over to playing it back. */
+  const watchReplay = () => {
+    const tape = replay.current ?? recorder.current?.finish() ?? null
+    if (!tape || tape.frames.length < 2) return
+    replay.current = tape
+    playback.current = { time: 0, playing: true, speed: REPLAY_SPEEDS[0] }
+    setReplayTime(0)
+    setReplayPlaying(true)
+    setReplaySpeed(REPLAY_SPEEDS[0])
+    setPodiumOpen(false)
+    setPhase('replay')
+    // Open on the whole circuit, so the replay starts by showing the race rather
+    // than one dinosaur's back. The camera button rides along with any of them.
+    setCameraMode('free')
+    setResetView((count) => count + 1)
+  }
+
+  const exitReplay = () => {
+    playback.current.playing = false
+    setPhase('finished')
+    setPodiumOpen(true)
+  }
+
+  const handleReplayTick = useCallback(() => {
+    setReplayTime(playback.current.time)
+    setReplayPlaying(playback.current.playing)
+  }, [])
+
+  const toggleReplayPlaying = () => {
+    // Hitting play at the very end starts it over rather than doing nothing.
+    const tape = replay.current
+    if (tape && !playback.current.playing && playback.current.time >= tape.duration) {
+      playback.current.time = 0
+      setReplayTime(0)
+    }
+    playback.current.playing = !playback.current.playing
+    setReplayPlaying(playback.current.playing)
+  }
+
+  const restartReplay = () => {
+    playback.current.time = 0
+    playback.current.playing = true
+    setReplayTime(0)
+    setReplayPlaying(true)
+  }
+
+  const cycleReplaySpeed = () => {
+    const next = REPLAY_SPEEDS[(REPLAY_SPEEDS.indexOf(playback.current.speed as 1) + 1) % REPLAY_SPEEDS.length]
+    playback.current.speed = next
+    setReplaySpeed(next)
+  }
+
+  const scrubReplay = (value: number) => {
+    playback.current.time = value
+    setReplayTime(value)
+  }
+
   const reportProfile = useMemo(() => {
     const first = roster.find((entry) => entry.id === selected[0])
     return first ? toRaceProfile(first.config) : DEMO_DINO
@@ -200,14 +302,70 @@ export default function RaceWorldApp() {
   const section = COURSE.find((item) => item.terrain === selectedTerrain)
 
   const selectedEntries = roster.filter((entry) => selected.includes(entry.id))
-  const leaderLap = standings.length
-    ? Math.min(LAP_COUNT, Math.floor(standings[0].progress) + 1)
+
+  /**
+   * The standings, from the live race or from the tape being played back. Both
+   * feed the same board so a replay reads exactly like the race did.
+   */
+  const board: BoardRow[] = useMemo(() => {
+    const tape = replay.current
+    if (replaying && tape) {
+      const at = tape.entries.map(emptySample)
+      sampleReplay(tape, replayTime, at)
+      return tape.entries
+        .map((entry, index) => {
+          const sample = at[index]
+          const done = entry.finishedAt !== null && replayTime >= entry.finishedAt
+          const place = done ? entry.place : null
+          const wrapped = (((course.startT + sample.progress) % 1) + 1) % 1
+          const point = course.curve.getPointAt(wrapped)
+          const effect = sample.boost ? 'boost' as const : sample.flip ? 'reverse' as const : null
+          return {
+            id: entry.id,
+            name: entry.name,
+            color: entry.config.color,
+            driven: entry.driven,
+            place,
+            effect,
+            note: place ? `Finished ${PLACE_LABEL[place - 1]}`
+              : effect === 'boost' ? 'Star boost!'
+                : effect === 'reverse' ? 'Spun around!'
+                  : course.terrainAt(point.x, point.z),
+            progress: sample.progress,
+          }
+        })
+        // Same ordering the live race uses: finishers by place, then by distance.
+        .sort((a, b) => {
+          if (a.place !== null && b.place !== null) return a.place - b.place
+          if (a.place !== null) return -1
+          if (b.place !== null) return 1
+          return b.progress - a.progress
+        })
+    }
+
+    return standings.map((racer) => ({
+      id: racer.id,
+      name: racer.name,
+      color: racer.config.color,
+      driven: racer.driven,
+      place: racer.place,
+      effect: racer.effect,
+      note: racer.place ? `Finished ${PLACE_LABEL[racer.place - 1]}`
+        : racer.effect === 'boost' ? 'Star boost!'
+          : racer.effect === 'reverse' ? 'Spun around!'
+            : racer.terrain,
+      progress: racer.progress,
+    }))
+  }, [replaying, replayTime, standings, course])
+
+  const leaderLap = board.length
+    ? Math.min(LAP_COUNT, Math.floor(board[0].progress) + 1)
     : 1
 
-  // Positions are kept alongside each racer so a collapsed board can still show
+  // Positions are kept alongside each row so a collapsed board can still show
   // the real place rather than renumbering the one row it draws.
-  const ranked = standings.map((racer, index) => ({ racer, index }))
-  const focused = ranked.find((entry) => entry.racer.driven) ?? ranked[0]
+  const ranked = board.map((row, index) => ({ row, index }))
+  const focused = ranked.find((entry) => entry.row.driven) ?? ranked[0]
   const shownRows = standingsOpen ? ranked : focused ? [focused] : []
 
   /** Hold-to-steer. Capturing the pointer keeps a finger that slides off the pad
@@ -232,10 +390,11 @@ export default function RaceWorldApp() {
       <RaceWorld
         key={course.def.id}
         course={course}
-        follow={cameraMode === 'leader' && racing ? leader.current : null}
+        follow={cameraMode === 'leader' && (racing || replaying) ? leader.current : null}
         chase={chasing && started ? chase.current : null}
+        resetView={resetView}
       >
-        {started && <Racers
+        {started && !replaying && <Racers
           key={raceKey}
           racers={racers.current}
           course={course}
@@ -247,6 +406,17 @@ export default function RaceWorldApp() {
           chaseId={chasing ? cameraMode : null}
           chaseOut={chase.current}
           steering={driving ? steering : null}
+          recorder={recorder.current}
+        />}
+        {replaying && replay.current && <ReplayRacers
+          key={`replay-${raceKey}`}
+          replay={replay.current}
+          course={course}
+          playback={playback.current}
+          onTick={handleReplayTick}
+          leaderOut={leader.current}
+          chaseId={chasing ? cameraMode : null}
+          chaseOut={chase.current}
         />}
       </RaceWorld>
     </div>
@@ -382,14 +552,16 @@ export default function RaceWorldApp() {
       >🏁 START RACE</button>
     </div>}
 
-    {started && standings.length > 0 && <aside
-      className={`leaderboard${driving ? ' driving' : ''}${standingsOpen ? '' : ' collapsed'}`}
+    {started && board.length > 0 && <aside
+      className={`leaderboard${driving || replaying ? ' driving' : ''}${standingsOpen ? '' : ' collapsed'}`}
       aria-label="Race standings"
     >
       <div className="leaderboard-head">
-        <span>🏁</span>
-        <strong>{phase === 'finished' ? 'FINAL RESULTS' : standingsOpen ? 'RACE ORDER' : 'YOU'}</strong>
-        {phase !== 'finished' && <em className="lap-chip">LAP {leaderLap}/{LAP_COUNT}</em>}
+        <span>{replaying ? '🎬' : '🏁'}</span>
+        <strong>{replaying ? 'REPLAY'
+          : phase === 'finished' ? 'FINAL RESULTS'
+            : standingsOpen ? 'RACE ORDER' : 'YOU'}</strong>
+        {phase !== 'finished' && !replaying && <em className="lap-chip">LAP {leaderLap}/{LAP_COUNT}</em>}
         <button
           className="standings-toggle"
           type="button"
@@ -398,19 +570,14 @@ export default function RaceWorldApp() {
           onClick={() => { playTap(); setStandingsOpen((current) => !current) }}
         >{standingsOpen ? '▾' : '▸'}</button>
       </div>
-      <ol>{shownRows.map(({ racer, index }) => <li key={racer.id} className={`${racer.place ? 'done' : ''}${racer.driven ? ' you' : ''}`}>
-        <b>{racer.place ? PLACE_MEDAL[racer.place - 1] : index + 1}</b>
-        <i style={{ background: racer.config.color }} />
+      <ol>{shownRows.map(({ row, index }) => <li key={row.id} className={`${row.place ? 'done' : ''}${row.driven ? ' you' : ''}`}>
+        <b>{row.place ? PLACE_MEDAL[row.place - 1] : index + 1}</b>
+        <i style={{ background: row.color }} />
         <div>
-          <strong>{racer.name}{racer.driven ? ' 🎮' : ''}{racer.effect === 'boost' ? ' ⭐' : racer.effect === 'reverse' ? ' 🌪️' : ''}</strong>
-          <small className={racer.effect ?? undefined}>
-            {racer.place ? `Finished ${PLACE_LABEL[racer.place - 1]}`
-              : racer.effect === 'boost' ? 'Star boost!'
-                : racer.effect === 'reverse' ? 'Spun around!'
-                  : racer.terrain}
-          </small>
+          <strong>{row.name}{row.driven ? ' 🎮' : ''}{row.effect === 'boost' ? ' ⭐' : row.effect === 'reverse' ? ' 🌪️' : ''}</strong>
+          <small className={row.effect ?? undefined}>{row.note}</small>
         </div>
-        <em>{Math.round(Math.min(1, racer.progress / LAP_COUNT) * 100)}%</em>
+        <em>{Math.round(Math.min(1, row.progress / LAP_COUNT) * 100)}%</em>
       </li>)}</ol>
     </aside>}
 
@@ -423,7 +590,7 @@ export default function RaceWorldApp() {
       <small>FINAL LAP!</small>
     </div>}
 
-    {started && <div className={`race-controls${racing && driving ? ' driving' : ''}`}>
+    {started && !replaying && <div className={`race-controls${racing && driving ? ' driving' : ''}`}>
       <button className="race-reset" type="button" onClick={resetRace}>↻ NEW RACE</button>
       <button
         className={`race-follow${cameraMode === 'free' ? '' : ' on'}`}
@@ -432,7 +599,39 @@ export default function RaceWorldApp() {
       >🎥 {cameraMode === 'free' ? 'Free camera'
         : cameraMode === 'leader' ? 'Following leader'
           : `Behind ${chasedName ?? 'racer'}`}</button>
+      {phase === 'finished' && <button className="race-replay" type="button" onClick={watchReplay}>🎬 WATCH REPLAY</button>}
       {finishers.length > 0 && !podiumOpen && <button className="race-results" type="button" onClick={() => setPodiumOpen(true)}>🏆 RESULTS</button>}
+    </div>}
+
+    {replaying && replay.current && <div className="replay-bar">
+      <div className="replay-scrub">
+        <input
+          type="range"
+          min={0}
+          max={replay.current.duration}
+          step={0.05}
+          value={replayTime}
+          aria-label="Replay position"
+          onChange={(event) => scrubReplay(Number(event.target.value))}
+        />
+        <span>{replayTime.toFixed(1)}s / {replay.current.duration.toFixed(1)}s</span>
+      </div>
+      <div className="replay-buttons">
+        <button className="replay-play" type="button" aria-label={replayPlaying ? 'Pause' : 'Play'} onClick={toggleReplayPlaying}>
+          {replayPlaying ? '⏸' : '▶'}
+        </button>
+        <button type="button" aria-label="Watch from the start" onClick={restartReplay}>↻</button>
+        <button type="button" aria-label={`Playback speed ${replaySpeed} times`} onClick={cycleReplaySpeed}>{replaySpeed}×</button>
+        <button
+          className={`race-follow${cameraMode === 'free' ? '' : ' on'}`}
+          type="button"
+          aria-label="Change camera"
+          onClick={cycleCamera}
+        >🎥 {cameraMode === 'free' ? 'Free'
+          : cameraMode === 'leader' ? 'Leader'
+            : chasedName ?? 'Racer'}</button>
+        <button className="replay-done" type="button" onClick={exitReplay}>✕ DONE</button>
+      </div>
     </div>}
 
     {racing && driving && <div className="race-steer">
@@ -452,6 +651,7 @@ export default function RaceWorldApp() {
           <em>{racer.finishedAt?.toFixed(1)}s</em>
         </li>)}</ol>
         {phase !== 'finished' && <p className="podium-waiting">Still running… finishers will appear here.</p>}
+        {phase === 'finished' && <button className="podium-replay" type="button" onClick={watchReplay}>🎬 WATCH THE REPLAY</button>}
         <button className="podium-again" type="button" onClick={() => { setPodiumOpen(false); resetRace() }}>↻ RACE AGAIN</button>
       </div>
     </div>}

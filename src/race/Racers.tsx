@@ -7,6 +7,7 @@ import { WORLD_LIFT, WORLD_SCALE, type Course } from './course'
 import { BASE_SPEED, LAP_COUNT, stepRacer, type RacerState } from './raceEngine'
 import { PickupModel } from './PickupModels'
 import { STEER_LIMIT, STEER_SPEED, type Steering } from './steering'
+import { emptySample, type ReplayRecorder } from './replay'
 import {
   MAX_LIVE_STARS,
   SPIN_TIME,
@@ -21,7 +22,7 @@ import {
 } from './pickups'
 
 /** Sized so a full grid of six fits across the road without clipping. */
-const DINO_SCALE = 0.34
+export const DINO_SCALE = 0.34
 
 export interface ChaseTarget {
   position: THREE.Vector3
@@ -29,7 +30,7 @@ export interface ChaseTarget {
   active: boolean
 }
 
-export function Racers({ racers, course, running, onFinish, onLap, onSample, leaderOut, chaseId, chaseOut, steering }: {
+export function Racers({ racers, course, running, onFinish, onLap, onSample, leaderOut, chaseId, chaseOut, steering, recorder }: {
   /** Mutated in place by the frame loop; remount the component to reset. */
   racers: RacerState[]
   course: Course
@@ -45,6 +46,8 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
   chaseOut?: ChaseTarget
   /** Steers whichever racer is flagged `driven`, when the player is driving. */
   steering?: Steering | null
+  /** Writes down the race as it happens, so it can be watched again after. */
+  recorder?: ReplayRecorder | null
 }) {
   const groups = useRef<(THREE.Group | null)[]>([])
   // Plain ref objects handed to each Dinosaur, so gait changes never re-render.
@@ -68,6 +71,8 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
   // Tornadoes are not consumed, so a whole pack can clip one on the same frame.
   // Remembering which have been heard keeps that from firing six swoops at once.
   const heard = useRef(new Set<number>())
+  // Reused every frame; the recorder copies what it decides to keep.
+  const samples = useRef(racers.map(emptySample))
   const [, repaint] = useReducer((count: number) => count + 1, 0)
 
   useFrame((_, rawDelta) => {
@@ -200,6 +205,17 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
       }
       gaits.current[index].current = racer.speed / BASE_SPEED
 
+      // Everything the replay needs to put this dinosaur back here later.
+      const sample = samples.current[index]
+      if (sample) {
+        sample.progress = racer.progress
+        sample.lane = racer.lane
+        sample.flip = reversing ? 1 : 0
+        sample.boost = racer.effect === 'boost' ? 1 : 0
+        sample.spin = spinOut * 21
+        sample.gait = racer.speed / BASE_SPEED
+      }
+
       if (leaderOut && racer.progress > bestProgress) {
         bestProgress = racer.progress
         leaderOut.set(
@@ -221,6 +237,9 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
         chaseOut.active = true
       }
     })
+
+    // After positioning, so the tape holds the same spin-out the frame drew.
+    if (running) recorder?.capture(elapsed.current, samples.current, pickups.current)
 
     sampleTimer.current += delta
     if (sampleTimer.current >= 0.12) {

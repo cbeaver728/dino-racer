@@ -222,6 +222,50 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 .race-follow { background: #57616b; }
 .race-follow.on { background: #4f9e65; }
 .race-results { background: #d8a33c; }
+.race-replay { background: #7a5cc4; }
+
+/* ---- Replay transport ---- */
+
+.replay-bar {
+  position: absolute; z-index: 5; left: 50%; bottom: 22px; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 36px));
+  display: flex; flex-direction: column; gap: 9px; padding: 11px 14px;
+  border: 2px solid #ffffffd9; border-radius: 18px; background: #fffdf1f2;
+  box-shadow: 0 7px 0 #173d4266, 0 15px 35px #183f4530; backdrop-filter: blur(7px);
+}
+.replay-scrub { display: flex; align-items: center; gap: 10px; }
+.replay-scrub span { flex: none; font-size: .62rem; font-weight: 900; color: #5c786f; font-variant-numeric: tabular-nums; }
+/* Chunky enough for a small finger to land on and drag. */
+.replay-scrub input {
+  flex: 1; width: 100%; height: 22px; margin: 0;
+  -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer;
+}
+.replay-scrub input::-webkit-slider-runnable-track { height: 10px; border-radius: 20px; background: #dce7dd; }
+.replay-scrub input::-moz-range-track { height: 10px; border-radius: 20px; background: #dce7dd; }
+.replay-scrub input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; margin-top: -7px;
+  width: 24px; height: 24px; border: 3px solid #fff; border-radius: 50%;
+  background: #7a5cc4; box-shadow: 0 2px 3px #0003;
+}
+.replay-scrub input::-moz-range-thumb {
+  width: 24px; height: 24px; border: 3px solid #fff; border-radius: 50%;
+  background: #7a5cc4; box-shadow: 0 2px 3px #0003;
+}
+.replay-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; }
+.replay-buttons button {
+  min-height: 44px; min-width: 52px; padding: 0 12px;
+  border: 0; border-radius: 13px; background: #57616b; color: #fff;
+  font-weight: 900; font-size: .82rem; box-shadow: 0 4px 0 #00000033;
+}
+.replay-buttons button:active { transform: translateY(2px); box-shadow: 0 2px 0 #00000033; }
+.replay-play { background: #7a5cc4 !important; font-size: 1.15rem !important; }
+.replay-done { background: #3d7f92 !important; }
+.podium-replay {
+  width: 100%; min-height: 50px; margin-bottom: 9px;
+  border: 0; border-radius: 15px; background: #7a5cc4; color: #fff;
+  font-weight: 900; font-size: 1rem; box-shadow: 0 5px 0 #543f8b;
+}
+.podium-replay:active { transform: translateY(3px); box-shadow: 0 2px 0 #543f8b; }
 
 /* Matches the Star Dash pads, which already read as "hold me" to a four year old. */
 .race-steer {
@@ -345,4 +389,6 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
   .leaderboard ol { grid-template-columns: 1fr 1fr; }
   .race-controls { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); gap: 7px; width: calc(100vw - 18px); }
   .race-controls button { flex: 1; min-height: 46px; padding: 0 10px; font-size: .82rem; }
+  .replay-bar { left: 9px; right: 9px; width: auto; transform: none; bottom: max(10px, env(safe-area-inset-bottom)); padding: 9px 10px; }
+  .replay-buttons button { flex: 1; min-width: 0; padding: 0 6px; font-size: .72rem; }
 }

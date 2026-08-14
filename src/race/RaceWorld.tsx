@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -251,12 +251,33 @@ function StartGate({ course }: { course: Course }) {
   </group>
 }
 
+/** Where the wide view sits: high and back enough to hold the whole circuit. */
+const OVERVIEW = [29, 31, 36] as const
+
 /**
  * Free orbit until a race is on, then it eases its target onto the leader so the
  * pack stays framed without taking the camera away from the player.
  */
-function CourseCamera({ follow }: { follow?: THREE.Vector3 | null }) {
+function CourseCamera({ follow, resetView }: { follow?: THREE.Vector3 | null; resetView?: number }) {
+  const camera = useThree((state) => state.camera)
   const controls = useRef<{ target: THREE.Vector3; update: () => void } | null>(null)
+
+  /*
+   * Snap back to the wide shot when the caller bumps `resetView`.
+   *
+   * The chase camera moves the shared camera itself, so simply switching back to
+   * free orbit would leave it parked wherever the chase left it — a foot behind
+   * a dinosaur, which is not a view of a race track.
+   */
+  useEffect(() => {
+    if (resetView === undefined) return
+    camera.position.set(OVERVIEW[0], OVERVIEW[1], OVERVIEW[2])
+    if (controls.current) {
+      controls.current.target.set(0, 0, 0)
+      controls.current.update()
+    }
+  }, [resetView, camera])
+
   useFrame(() => {
     if (follow && controls.current) {
       controls.current.target.lerp(follow, .06)
@@ -310,11 +331,13 @@ function ChaseCamera({ target }: { target: ChaseTarget }) {
   return null
 }
 
-export function RaceWorld({ course, children, follow, chase }: {
+export function RaceWorld({ course, children, follow, chase, resetView }: {
   course: Course
   children?: ReactNode
   follow?: THREE.Vector3 | null
   chase?: ChaseTarget | null
+  /** Bump to snap the free camera back to the wide shot. */
+  resetView?: number
 }) {
   return <Canvas shadows camera={{ position: [29, 31, 36], fov: 39 }} dpr={[1, 1.6]}>
     <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 60, 102]} />
@@ -331,6 +354,6 @@ export function RaceWorld({ course, children, follow, chase }: {
       <StartGate course={course} />
       {children}
     </group>
-    {chase ? <ChaseCamera target={chase} /> : <CourseCamera follow={follow} />}
+    {chase ? <ChaseCamera target={chase} /> : <CourseCamera follow={follow} resetView={resetView} />}
   </Canvas>
 }

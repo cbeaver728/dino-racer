@@ -30,10 +30,13 @@ Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and respo
 - **Head families matter** — each of the five heads owns a terrain, except Parasaurolophus, which keeps a little of its pace everywhere.
 - **Closer racing** — pace is compressed toward the middle rather than clipped at a hard limit, which cut the spread between the best and worst of the 13,500 possible builds from 47% to 20% while keeping every part choice meaningful.
 - **Two laps**, with a lap counter and tornadoes spread across the real race duration.
-- **Sound** — countdown, start, star, tornado and finish cues, synthesised in `src/game/sound.ts` with no audio files, plus a mute button on both game pages.
+- **Replay** — every race is recorded and can be watched again from the podium, with play/pause, a scrub bar, 0.5x/1x/2x speed and the same cameras the race uses. It opens on the wide shot of the whole circuit.
+- **Sound** — countdown, start, star, tornado, final lap and finish cues, synthesised in `src/game/sound.ts` with no audio files, plus a mute button on both game pages. Sound starts muted.
 
 ### Not yet done
 
 Win counts, best laps, and Star Dash high scores are deliberately absent until where a phone keeps its site data is settled. Only the roster is persisted today.
+
+The replay is a recording, not a re-simulation: pickups are placed with `Math.random` and drive mode depends on what the player did, so `src/race/replay.ts` writes down where everyone actually was at 20Hz and plays it back interpolated.
 
 Configuration, stats, simulation, rendering, and storage remain separate to support the roadmap: safari island and a dinosaur collection are still ahead.
