@@ -22,6 +22,8 @@ export interface ReplaySample {
   flip: number
   /** 1 while a star boost is running, so the standings can show it again. */
   boost: number
+  /** Which way they went at each fork, one bit per split. */
+  branches: number
   /** Extra spin-out rotation in radians, so the tornado hit reads on playback. */
   spin: number
   /** Speed over base speed, which drives the leg animation. */
@@ -44,6 +46,8 @@ export interface ReplayPickupSpan {
   lane: number
   from: number
   to: number
+  /** Which way round a fork it sat on, on a course that forks. */
+  route?: number[]
 }
 
 export interface ReplayEntry {
@@ -97,6 +101,7 @@ export function createRecorder(courseId: string, racers: RacerState[]): ReplayRe
           lane: pickup.lane,
           from: time,
           to: Infinity,
+          route: pickup.route,
         }
         open.set(pickup.id, span)
         pickups.push(span)
@@ -171,12 +176,18 @@ export function sampleReplay(
     // Flags, not quantities: blending them would half-turn the dinosaur.
     sample.flip = blend < 0.5 ? a.flip : b.flip
     sample.boost = blend < 0.5 ? a.boost : b.boost
+    sample.branches = blend < 0.5 ? a.branches : b.branches
   }
 
   return index
 }
 
-export const emptySample = (): ReplaySample => ({ progress: 0, lane: 0, flip: 0, boost: 0, spin: 0, gait: 0 })
+export const emptySample = (): ReplaySample =>
+  ({ progress: 0, lane: 0, flip: 0, boost: 0, branches: 0, spin: 0, gait: 0 })
+
+/** Unpacks the bitmask a sample stores back into a route array. */
+export const routeOf = (branches: number, splits: number): number[] =>
+  Array.from({ length: splits }, (_, index) => ((branches >> index) & 1))
 
 /** Playback position and transport, held in a ref so scrubbing never re-renders. */
 export interface Playback {

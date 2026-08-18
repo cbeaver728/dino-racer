@@ -14,24 +14,29 @@ const seeded = (seed: number) => {
 /** Points scattered inside a biome's footprint, skipping anything on the road. */
 function scatter(count: number, seed: number, layout: BiomeLayout, course: Course, clearance: number) {
   const points: { x: number; z: number; roll: number; index: number }[] = []
+  // Branch roads are not part of course.samples, so they are measured too;
+  // otherwise a fork would run straight through a stand of trees.
+  const branchPoints = course.splits.flatMap((split) => split.samples)
+  const clearOfBranches = (x: number, z: number) =>
+    branchPoints.every((point) => Math.hypot(point.x - x, point.z - z) > clearance)
   for (let index = 0; index < count; index++) {
     const x = layout.center[0] + (seeded(index + seed) * 2 - 1) * layout.spread[0]
     const z = layout.center[1] + (seeded(index + seed + 517) * 2 - 1) * layout.spread[1]
-    if (course.distanceToRoad(x, z) > clearance) {
+    if (course.distanceToRoad(x, z) > clearance && clearOfBranches(x, z)) {
       points.push({ x, z, roll: seeded(index + seed + 911), index })
     }
   }
   return points
 }
 
-function ribbonGeometry(course: Course, width: number, lift = 0) {
-  const samples = course.samples
+function ribbonGeometry(samples: THREE.Vector3[], width: number, lift = 0, closed = true) {
   const positions: number[] = []
   const uvs: number[] = []
   const indices: number[] = []
   samples.forEach((point, index) => {
-    const previous = samples[(index - 1 + samples.length) % samples.length]
-    const next = samples[(index + 1) % samples.length]
+    // An open branch has no wrap-around, so its ends read their one neighbour.
+    const previous = samples[closed ? (index - 1 + samples.length) % samples.length : Math.max(0, index - 1)]
+    const next = samples[closed ? (index + 1) % samples.length : Math.min(samples.length - 1, index + 1)]
     const tangent = next.clone().sub(previous).setY(0).normalize()
     const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
     const left = point.clone().addScaledVector(side, width).add(new THREE.Vector3(0, lift, 0))
@@ -40,8 +45,10 @@ function ribbonGeometry(course: Course, width: number, lift = 0) {
     uvs.push(0, index / samples.length, 1, index / samples.length)
     if (index) indices.push((index - 1) * 2, (index - 1) * 2 + 1, index * 2, (index - 1) * 2 + 1, index * 2 + 1, index * 2)
   })
-  const last = samples.length - 1
-  indices.push(last * 2, last * 2 + 1, 0, last * 2 + 1, 1, 0)
+  if (closed) {
+    const last = samples.length - 1
+    indices.push(last * 2, last * 2 + 1, 0, last * 2 + 1, 1, 0)
+  }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
@@ -50,16 +57,96 @@ function ribbonGeometry(course: Course, width: number, lift = 0) {
   return geometry
 }
 
+/** One stretch of road: the main circuit, or one way round a fork. */
+function RoadRibbon({ samples, closed, accent }: {
+  samples: THREE.Vector3[]; closed: boolean; accent?: string
+}) {
+  const shoulder = useMemo(() => ribbonGeometry(samples, 1.72, .015, closed), [samples, closed])
+  const road = useMemo(() => ribbonGeometry(samples, 1.46, .035, closed), [samples, closed])
+  return <group>
+    <mesh geometry={shoulder} receiveShadow>
+      <meshStandardMaterial color={accent ?? '#796647'} roughness={1} side={THREE.DoubleSide} />
+    </mesh>
+    <mesh geometry={road} receiveShadow>
+      <meshStandardMaterial color="#cda968" roughness={.98} side={THREE.DoubleSide} />
+    </mesh>
+  </group>
+}
+
+/**
+ * The shoulder of each branch is tinted by the ground it runs over, so which
+ * way is the marsh and which the rock is readable from the air before a racer
+ * has to commit to one.
+ */
+const BRANCH_SHOULDER: Record<Terrain, string> = {
+  Marsh: '#3f7d78',
+  Mountains: '#6b5f5a',
+  Forest: '#2f6b3c',
+  Plains: '#b39a55',
+}
+
 function RaceRoad({ course }: { course: Course }) {
-  const shoulder = useMemo(() => ribbonGeometry(course, 1.72, .015), [course])
-  const road = useMemo(() => ribbonGeometry(course, 1.46, .035), [course])
   const centerMarkers = course.samples.filter((_, index) => index % 10 < 5)
   return <group>
-    <mesh geometry={shoulder} receiveShadow><meshStandardMaterial color="#796647" roughness={1} side={THREE.DoubleSide} /></mesh>
-    <mesh geometry={road} receiveShadow><meshStandardMaterial color="#cda968" roughness={.98} side={THREE.DoubleSide} /></mesh>
+    <RoadRibbon samples={course.samples} closed />
+    {/* Branch 0 of every fork is the main circuit, already drawn above; only
+        the alternative way round needs its own ribbon. */}
+    {course.splits.map((split) => (
+      <RoadRibbon key={split.index} samples={split.samples} closed={false} accent={BRANCH_SHOULDER[split.terrains[1]]} />
+    ))}
     {centerMarkers.map((point, index) => <mesh key={index} position={[point.x, point.y + .075, point.z]} rotation={[-Math.PI / 2, 0, 0]}>
       <circleGeometry args={[.065, 8]} /><meshBasicMaterial color="#f4dfaa" transparent opacity={.9} />
     </mesh>)}
+  </group>
+}
+
+/** Glowing pools on the road. Anything that runs through one is slowed. */
+function LavaPools({ course }: { course: Course }) {
+  if (!course.lava.length) return null
+  return <group>{course.lava.map((pool, index) => (
+    <group key={index} position={[pool.x, .09, pool.z]}>
+      <mesh rotation={[-Math.PI / 2, 0, index]}>
+        <circleGeometry args={[pool.radius, 26]} />
+        <meshStandardMaterial color="#ff6a1e" emissive="#ff3b00" emissiveIntensity={1.5} roughness={.5} />
+      </mesh>
+      {/* A cooler crust around the rim so the hot centre reads as depth. */}
+      <mesh position={[0, -.012, 0]} rotation={[-Math.PI / 2, 0, index]}>
+        <circleGeometry args={[pool.radius * 1.28, 26]} />
+        <meshStandardMaterial color="#4a2418" roughness={1} />
+      </mesh>
+      <pointLight color="#ff5a12" intensity={2.4} distance={pool.radius * 5} position={[0, .5, 0]} />
+    </group>
+  ))}</group>
+}
+
+/** The island's cone, smoking at the top. */
+function Volcano({ at }: { at: { x: number; z: number; scale: number } }) {
+  return <group position={[at.x, 0, at.z]} scale={at.scale}>
+    <mesh castShadow receiveShadow position={[0, 2.1, 0]}>
+      <coneGeometry args={[3.4, 4.2, 22]} />
+      <meshStandardMaterial color="#5d4b46" roughness={1} />
+    </mesh>
+    {/* Crater rim, and the glow sitting in it. */}
+    <mesh position={[0, 4.16, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[.72, 20]} />
+      <meshStandardMaterial color="#ff5a12" emissive="#ff3b00" emissiveIntensity={1.7} roughness={.5} />
+    </mesh>
+    <pointLight color="#ff5a12" intensity={9} distance={16} position={[0, 4.8, 0]} />
+    {/* Lava running down one flank. */}
+    {[[.55, -.5], [-.35, .6]].map(([dx, dz], index) => (
+      <mesh key={index} position={[dx * 1.5, 1.5 - index * .3, dz * 1.5]} rotation={[-Math.PI / 2, 0, index]} scale={[.5, 2.4, 1]}>
+        <circleGeometry args={[.5, 14]} />
+        <meshStandardMaterial color="#e04a12" emissive="#ff3b00" emissiveIntensity={.9} roughness={.7} />
+      </mesh>
+    ))}
+    <mesh position={[0, 5.6, 0]} scale={[1.1, .7, 1.1]}>
+      <sphereGeometry args={[.9, 18, 14]} />
+      <meshStandardMaterial color="#6e6a68" transparent opacity={.5} roughness={1} />
+    </mesh>
+    <mesh position={[.35, 6.6, .2]} scale={[1.3, .8, 1.3]}>
+      <sphereGeometry args={[.75, 18, 14]} />
+      <meshStandardMaterial color="#807b78" transparent opacity={.36} roughness={1} />
+    </mesh>
   </group>
 }
 
@@ -365,6 +452,8 @@ export function RaceWorld({ course, children, follow, chase, resetView, resetOff
       <MountainBiome layout={course.def.biomes.Mountains} course={course} />
       <ForestBiome layout={course.def.biomes.Forest} course={course} />
       <RaceRoad course={course} />
+      <LavaPools course={course} />
+      {course.def.volcano && <Volcano at={course.def.volcano} />}
       <BridgeSupports course={course} />
       <TrackTerrainDetails course={course} />
       <StartGate course={course} />

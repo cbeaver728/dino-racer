@@ -30,12 +30,15 @@ Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and respo
 - **Head families matter** — each of the five heads owns a terrain, except Parasaurolophus, which keeps a little of its pace everywhere.
 - **Closer racing** — pace is compressed toward the middle rather than clipped at a hard limit, which cut the spread between the best and worst of the 13,500 possible builds from 47% to 20% while keeping every part choice meaningful.
 - **Two laps**, with a lap counter and tornadoes spread across the real race duration.
+- **Smoking Isle** — a third, longer track: a tropical island lap round a live volcano that forks three times. Each fork offers two ways round of exactly equal length through different terrain, so the choice is about what suits your dinosaur and never about distance. Lava pools on the volcano fork slow anything that runs through them.
 - **Replay** — every race is recorded and can be watched again from the podium, with play/pause, a scrub bar, 0.5x/1x/2x speed and the same cameras the race uses. It opens on the wide shot of the whole circuit.
 - **Sound** — countdown, start, star, tornado, final lap and finish cues, synthesised in `src/game/sound.ts` with no audio files, plus a mute button on both game pages. Sound starts muted.
 
 ### Not yet done
 
 Win counts, best laps, and Star Dash high scores are deliberately absent until where a phone keeps its site data is settled. Only the roster is persisted today.
+
+Both ways round each fork are built to the same arc length as the stretch of main curve they replace, solved by bisection in `src/race/course.ts`. That is what lets everything downstream carry on treating progress as one lap fraction: nothing outside the course needs to know a choice was ever made. Computer racers pick a fork by comparing their own terrain paces; a driving player picks by which side of the road they are on when they reach it.
 
 The replay is a recording, not a re-simulation: pickups are placed with `Math.random` and drive mode depends on what the player did, so `src/race/replay.ts` writes down where everyone actually was at 20Hz and plays it back interpolated.
 

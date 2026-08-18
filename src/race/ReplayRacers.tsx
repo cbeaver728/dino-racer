@@ -6,7 +6,7 @@ import { WORLD_LIFT, WORLD_SCALE, type Course } from './course'
 import { DINO_SCALE, type ChaseTarget } from './Racers'
 import { PickupModel } from './PickupModels'
 import type { Pickup } from './pickups'
-import { emptySample, sampleReplay, type Playback, type Replay, type ReplayPickupSpan } from './replay'
+import { emptySample, routeOf, sampleReplay, type Playback, type Replay, type ReplayPickupSpan } from './replay'
 
 /**
  * Plays a recorded race back through the same models and camera rigs the live
@@ -55,7 +55,8 @@ export function ReplayRacers({ replay, course, playback, onTick, leaderOut, chas
 
     replay.entries.forEach((entry, index) => {
       const sample = samples.current[index]
-      const frame = course.frameAt(course.startT + sample.progress, sample.lane)
+      const route = routeOf(sample.branches, course.splits.length)
+      const frame = course.frameAt(course.startT + sample.progress, sample.lane, route)
       const heading = frame.heading + (sample.flip ? Math.PI : 0) + sample.spin
 
       const group = groups.current[index]
@@ -114,7 +115,7 @@ export function ReplayRacers({ replay, course, playback, onTick, leaderOut, chas
       ))}
 
       {visible.current.map((span) => {
-        const frame = course.frameAt(span.t, span.lane)
+        const frame = course.frameAt(span.t, span.lane, span.route)
         // The pickup models only read id and kind; the rest keeps the shape.
         const pickup: Pickup = {
           id: span.id,

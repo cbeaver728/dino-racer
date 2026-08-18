@@ -15,6 +15,7 @@ import {
   STAR_INTERVAL,
   TORNADO_PER_LAP,
   hits,
+  sameBranch,
   reverseTimeFor,
   scheduleTornadoes,
   spawnAhead,
@@ -141,7 +142,8 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
           for (const pickup of pickups.current) if (pickup.kind === 'star') stars++
           if (stars < MAX_LIVE_STARS) {
             const at = (course.startT + trailing) % 1
-            pickups.current = [...pickups.current, spawnAhead(nextId.current++, 'star', at, now)]
+            const behind = racers.find((racer) => racer.progress === trailing)
+            pickups.current = [...pickups.current, spawnAhead(nextId.current++, 'star', at, now, behind?.route)]
             changed = true
           }
         }
@@ -149,7 +151,8 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
         if (tornadoesSent.current < tornadoTimes.current.length && now >= tornadoTimes.current[tornadoesSent.current]) {
           tornadoesSent.current += 1
           const at = (course.startT + leading) % 1
-          pickups.current = [...pickups.current, spawnAhead(nextId.current++, 'tornado', at, now)]
+          const front = racers.find((racer) => racer.progress === leading)
+          pickups.current = [...pickups.current, spawnAhead(nextId.current++, 'tornado', at, now, front?.route)]
           changed = true
         }
       }
@@ -166,6 +169,9 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
         const audible = driving ? racer.driven : true
         for (const pickup of pickups.current) {
           if (pickup.taken || !hits(racerT, racer.lane, pickup, course.length, racer.driven)) continue
+          // Both ways round a fork share a lap fraction, so a star on one branch
+          // would otherwise be collectable from the other.
+          if (!sameBranch(course.splitAt(racerT)?.index ?? null, pickup.route, racer.route)) continue
           if (pickup.kind === 'star') {
             pickup.taken = true
             racer.boostUntil = now + STAR_BOOST_TIME
@@ -191,7 +197,7 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
     if (chaseOut) chaseOut.active = false
 
     racers.forEach((racer, index) => {
-      const frame = course.frameAt(course.startT + racer.progress, racer.lane)
+      const frame = course.frameAt(course.startT + racer.progress, racer.lane, racer.route)
       // Turned around while reversing, with a quick spin-out on the way there.
       const spinLeft = racer.reverseUntil - elapsed.current
       const reversing = spinLeft > 0
@@ -212,6 +218,7 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
         sample.lane = racer.lane
         sample.flip = reversing ? 1 : 0
         sample.boost = racer.effect === 'boost' ? 1 : 0
+        sample.branches = racer.route.reduce((mask, side, at) => (side === 1 ? mask | (1 << at) : mask), 0)
         sample.spin = spinOut * 21
         sample.gait = racer.speed / BASE_SPEED
       }
@@ -259,7 +266,7 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
       ))}
 
       {pickups.current.map((pickup) => {
-        const frame = course.frameAt(pickup.t, pickup.lane)
+        const frame = course.frameAt(pickup.t, pickup.lane, pickup.route)
         return (
           <group key={pickup.id} position={[frame.position.x, frame.position.y, frame.position.z]}>
             <PickupModel pickup={pickup} />

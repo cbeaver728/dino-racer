@@ -1,6 +1,8 @@
 export type PickupKind = 'star' | 'tornado'
 
 export interface Pickup {
+  /** Which way round each fork it sits on, on a course that forks. */
+  route?: number[]
   id: number
   kind: PickupKind
   /** Lap fraction, matching a racer's own position along the circuit. */
@@ -79,7 +81,7 @@ export function hits(racerT: number, racerLane: number, pickup: Pickup, courseLe
  * both near the back punished whoever was already losing, which is exactly the
  * outcome the randomness is here to avoid.
  */
-export function spawnAhead(id: number, kind: PickupKind, reference: number, elapsed: number): Pickup {
+export function spawnAhead(id: number, kind: PickupKind, reference: number, elapsed: number, route?: number[]): Pickup {
   const ahead = 0.02 + Math.random() * 0.12
   return {
     id,
@@ -88,6 +90,7 @@ export function spawnAhead(id: number, kind: PickupKind, reference: number, elap
     lane: (Math.random() * 2 - 1) * 0.92,
     bornAt: elapsed,
     diesAt: kind === 'tornado' ? elapsed + TORNADO_LIFETIME : null,
+    route: route ? [...route] : undefined,
     taken: false,
   }
 }
@@ -105,4 +108,16 @@ export function scheduleTornadoes(count: number, expectedDuration: number): numb
   return Array.from({ length: count }, (_, index) => (
     1.5 + step * (index + 1) + (Math.random() - 0.5) * step * 0.5
   ))
+}
+
+/**
+ * Whether a pickup and a racer are on the same side of a fork.
+ *
+ * Without this a star sitting on the jungle branch could be collected by a
+ * dinosaur running the lagoon branch, because a pickup is placed by lap
+ * fraction and lane and both ways round share those.
+ */
+export function sameBranch(splitIndex: number | null, pickupRoute: number[] | undefined, racerRoute: number[]) {
+  if (splitIndex === null || !pickupRoute) return true
+  return (pickupRoute[splitIndex] === 1) === (racerRoute[splitIndex] === 1)
 }
