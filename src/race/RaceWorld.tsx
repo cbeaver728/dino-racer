@@ -16,7 +16,7 @@ function scatter(count: number, seed: number, layout: BiomeLayout, course: Cours
   const points: { x: number; z: number; roll: number; index: number }[] = []
   // Branch roads are not part of course.samples, so they are measured too;
   // otherwise a fork would run straight through a stand of trees.
-  const branchPoints = course.splits.flatMap((split) => split.samples)
+  const branchPoints = course.splits.flatMap((split) => [...split.samples[0], ...split.samples[1]])
   const clearOfBranches = (x: number, z: number) =>
     branchPoints.every((point) => Math.hypot(point.x - x, point.z - z) > clearance)
   for (let index = 0; index < count; index++) {
@@ -86,14 +86,28 @@ const BRANCH_SHOULDER: Record<Terrain, string> = {
 }
 
 function RaceRoad({ course }: { course: Course }) {
-  const centerMarkers = course.samples.filter((_, index) => index % 10 < 5)
+  const centerMarkers = course.samples.filter((_, index) => index % 9 < 4)
+  const forked = course.splits.length > 0
   return <group>
-    <RoadRibbon samples={course.samples} closed />
-    {/* Branch 0 of every fork is the main circuit, already drawn above; only
-        the alternative way round needs its own ribbon. */}
-    {course.splits.map((split) => (
-      <RoadRibbon key={split.index} samples={split.samples} closed={false} accent={BRANCH_SHOULDER[split.terrains[1]]} />
-    ))}
+    {/* An unforked circuit is one closed ribbon. A forked one is drawn leg by
+        leg, with both ways round each fork tinted by the ground they cross. */}
+    {!forked && <RoadRibbon samples={course.curve.getSpacedPoints(180)} closed />}
+    {forked && course.legs.map((leg, index) => {
+      if (leg.kind === 'shared') {
+        return <RoadRibbon key={`leg-${index}`} samples={leg.samples} closed={false} />
+      }
+      const split = course.splits[leg.splitIndex]
+      return <group key={`fork-${index}`}>
+        {[0, 1].map((side) => (
+          <RoadRibbon
+            key={side}
+            samples={split.samples[side]}
+            closed={false}
+            accent={BRANCH_SHOULDER[split.terrains[side]]}
+          />
+        ))}
+      </group>
+    })}
     {centerMarkers.map((point, index) => <mesh key={index} position={[point.x, point.y + .075, point.z]} rotation={[-Math.PI / 2, 0, 0]}>
       <circleGeometry args={[.065, 8]} /><meshBasicMaterial color="#f4dfaa" transparent opacity={.9} />
     </mesh>)}
@@ -117,6 +131,54 @@ function LavaPools({ course }: { course: Course }) {
       <pointLight color="#ff5a12" intensity={2.4} distance={pool.radius * 5} position={[0, .5, 0]} />
     </group>
   ))}</group>
+}
+
+/** A palm: bare leaning trunk with a crown of fronds. */
+function Palm({ x, z, size, lean }: { x: number; z: number; size: number; lean: number }) {
+  return <group position={[x, 0, z]} scale={size} rotation={[0, seeded(x * 3 + z) * Math.PI * 2, 0]}>
+    <group rotation={[0, 0, lean]}>
+      {[0, 1, 2, 3].map((joint) => (
+        <mesh key={joint} castShadow position={[joint * 0.08, 0.34 + joint * 0.62, 0]} rotation={[0, 0, joint * 0.05]}>
+          <cylinderGeometry args={[0.11 - joint * 0.015, 0.14 - joint * 0.015, 0.68, 10]} />
+          <meshStandardMaterial color="#8a6a44" roughness={1} />
+        </mesh>
+      ))}
+      <group position={[0.26, 2.66, 0]}>
+        {[0, 1, 2, 3, 4, 5].map((frond) => {
+          const around = (frond / 6) * Math.PI * 2
+          return <mesh
+            key={frond}
+            position={[Math.cos(around) * 0.62, -0.06, Math.sin(around) * 0.62]}
+            rotation={[0, -around, -0.42]}
+            scale={[1.15, 0.09, 0.34]}
+            castShadow
+          >
+            <sphereGeometry args={[0.62, 14, 10]} />
+            <meshStandardMaterial color={frond % 2 ? '#2f8b45' : '#3aa055'} roughness={1} />
+          </mesh>
+        })}
+        <mesh position={[0, -0.16, 0]} scale={0.9}>
+          <sphereGeometry args={[0.2, 12, 10]} />
+          <meshStandardMaterial color="#7a5f3c" roughness={1} />
+        </mesh>
+      </group>
+    </group>
+  </group>
+}
+
+/** The sand the whole circuit sits on, ringed by shallows. */
+function Island({ sea }: { sea: NonNullable<Course['def']['sea']> }) {
+  const [rx, rz] = sea.radius
+  return <group>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.07, 0]} scale={[rx * 1.13, rz * 1.15, 1]} receiveShadow>
+      <circleGeometry args={[1, 72]} />
+      <meshStandardMaterial color="#6fc3d8" roughness={.35} />
+    </mesh>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.05, 0]} scale={[rx, rz, 1]} receiveShadow>
+      <circleGeometry args={[1, 72]} />
+      <meshStandardMaterial color={sea.sand} roughness={1} />
+    </mesh>
+  </group>
 }
 
 /** The island's cone, smoking at the top. */
@@ -302,20 +364,30 @@ function Tree({ x, z, size, broadleaf }: { x: number; z: number; size: number; b
 }
 
 function ForestBiome({ layout, course }: { layout: BiomeLayout; course: Course }) {
-  const trees = useMemo(() => scatter(152, 400, layout, course, 2.65), [layout, course])
+  const tropical = !!course.def.sea
+  const trees = useMemo(() => scatter(tropical ? 96 : 152, 400, layout, course, 2.65), [tropical, layout, course])
   const tufts = useMemo(() => scatter(38, 811, layout, course, 2.1), [layout, course])
+  const palms = useMemo(() => (tropical ? scatter(44, 3300, layout, course, 2.5) : []), [tropical, layout, course])
   return <group>
-    <GroundPatch layout={layout} color="#477d43" />
+    <GroundPatch layout={layout} color={tropical ? '#3f8a44' : '#477d43'} />
+    {palms.map((palm, index) => (
+      <Palm key={index} x={palm.x} z={palm.z} size={.7 + palm.roll * .5} lean={(palm.roll - .5) * .42} />
+    ))}
     {trees.map((tree, index) => <Tree key={index} x={tree.x} z={tree.z} size={.48 + tree.roll * .62} broadleaf={tree.index % 3 !== 0} />)}
     {tufts.map((tuft, index) => <GrassTuft key={index} x={tuft.x} z={tuft.z} color="#8caf54" scale={.7} />)}
   </group>
 }
 
 function PlainsBiome({ layout, course }: { layout: BiomeLayout; course: Course }) {
+  const tropical = !!course.def.sea
   const grass = useMemo(() => scatter(144, 900, layout, course, 1.9), [layout, course])
   const flowers = useMemo(() => scatter(24, 1300, layout, course, 1.9), [layout, course])
+  const palms = useMemo(() => (tropical ? scatter(30, 2100, layout, course, 2.4) : []), [tropical, layout, course])
   return <group>
-    <GroundPatch layout={layout} color="#8cb85e" />
+    <GroundPatch layout={layout} color={tropical ? '#ecd9a6' : '#8cb85e'} />
+    {palms.map((palm, index) => (
+      <Palm key={index} x={palm.x} z={palm.z} size={.62 + palm.roll * .4} lean={(palm.roll - .5) * .5} />
+    ))}
     {grass.map((item, index) => <GrassTuft key={index} x={item.x} z={item.z} scale={.45 + item.roll * .7} color={index % 4 === 0 ? '#d0b75b' : '#6d9f4d'} />)}
     {flowers.map((flower, index) => <mesh key={index} position={[flower.x, .08, flower.z]} scale={.06 + flower.roll * .04}>
       <sphereGeometry args={[1, 10, 7]} /><meshStandardMaterial color={index % 2 ? '#e78368' : '#f0cc5b'} />
@@ -324,9 +396,11 @@ function PlainsBiome({ layout, course }: { layout: BiomeLayout; course: Course }
 }
 
 function StartGate({ course }: { course: Course }) {
-  const point = course.curve.getPointAt(course.startT)
-  const tangent = course.curve.getTangentAt(course.startT)
-  const angle = Math.atan2(tangent.x, tangent.z)
+  const frame = course.frameAt(course.startT, 0)
+  const point = frame.position
+  // frameAt reports a heading for the models, which face +X; the gate is built
+  // facing +Z, so it takes the angle the other way round.
+  const angle = Math.atan2(Math.cos(frame.heading), -Math.sin(frame.heading))
   return <group position={[point.x, point.y, point.z]} rotation={[0, angle, 0]}>
     {[-1.2, 1.2].map((x) => <mesh key={x} castShadow position={[x, .82, 0]}><boxGeometry args={[.18, 1.65, .18]} /><meshStandardMaterial color="#493c2f" /></mesh>)}
     <mesh castShadow position={[0, 1.58, 0]}><boxGeometry args={[2.58, .28, .25]} /><meshStandardMaterial color="#493c2f" /></mesh>
@@ -443,10 +517,15 @@ export function RaceWorld({ course, children, follow, chase, resetView, resetOff
   resetOffset?: readonly [number, number, number]
 }) {
   return <Canvas shadows camera={{ position: [29, 31, 36], fov: 39 }} dpr={[1, 1.6]}>
-    <color attach="background" args={['#9bcfd5']} /><fog attach="fog" args={['#9bcfd5', 60, 102]} />
+    <color attach="background" args={[course.def.sea?.sky ?? '#9bcfd5']} />
+    <fog attach="fog" args={[course.def.sea?.sky ?? '#9bcfd5', 60, 118]} />
     <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-19, 29, 15]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-38} shadow-camera-right={38} shadow-camera-top={38} shadow-camera-bottom={-38} />
-    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}><planeGeometry args={[110, 100]} /><meshStandardMaterial color="#78a956" roughness={1} /></mesh>
+    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}>
+      <planeGeometry args={[150, 140]} />
+      <meshStandardMaterial color={course.def.sea?.water ?? '#78a956'} roughness={course.def.sea ? .3 : 1} />
+    </mesh>
     <group scale={[WORLD_SCALE, WORLD_LIFT, WORLD_SCALE]}>
+      {course.def.sea && <Island sea={course.def.sea} />}
       <PlainsBiome layout={course.def.biomes.Plains} course={course} />
       <MarshBiome layout={course.def.biomes.Marsh} course={course} />
       <MountainBiome layout={course.def.biomes.Mountains} course={course} />

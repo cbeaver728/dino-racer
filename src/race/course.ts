@@ -39,6 +39,12 @@ export interface SplitDefinition {
   right: Terrain
   /** Shown on the course card. */
   label: string
+  /**
+   * How far each way bows off the straight line between the fork and the
+   * merge. Set for how clearly the two roads should read as separate, since
+   * nothing else constrains it.
+   */
+  bow?: number
 }
 
 /**
@@ -80,18 +86,42 @@ export interface CourseDefinition {
   lava?: LavaDefinition[]
   /** Volcano cone, for the island. */
   volcano?: { x: number; z: number; scale: number }
+  /**
+   * Turns the world tropical: the ground plane becomes open water and a sand
+   * landmass is laid on top for the circuit to sit on.
+   */
+  sea?: { water: string; sky: string; sand: string; radius: [number, number] }
 }
 
-/** A built fork: index 0 follows the main curve, index 1 the branch built for it. */
+/** A built fork. Neither way is the main circuit: the road parts in two. */
 export interface CourseSplit {
   index: number
+  /** Lap fractions, in the lap's own space rather than the main curve's. */
   from: number
   to: number
   label: string
   terrains: [Terrain, Terrain]
-  /** The alternative way round. Index 0 is the main curve itself. */
-  branch: THREE.Curve<THREE.Vector3>
-  /** Sampled points of the branch, for drawing its road and scattering props. */
+  branches: [THREE.Curve<THREE.Vector3>, THREE.Curve<THREE.Vector3>]
+  /** Sampled points of each way, for drawing the roads and placing props. */
+  samples: [THREE.Vector3[], THREE.Vector3[]]
+}
+
+/**
+ * One stretch of a lap: a slice of the main circuit, or a fork with two ways
+ * round. Each owns a slice of the lap fraction proportional to its length.
+ */
+export interface CourseLeg {
+  kind: 'shared' | 'split'
+  splitIndex: number
+  curves: THREE.Curve<THREE.Vector3>[]
+  /** For a shared leg, the slice of the main curve it covers. */
+  uFrom: number
+  uTo: number
+  length: number
+  tFrom: number
+  tTo: number
+  /** Points along this leg, for drawing its road. A fork holds only its first
+   * way here; both are on the split itself. */
   samples: THREE.Vector3[]
 }
 
@@ -110,6 +140,7 @@ export interface Course {
   /** Share of the lap spent in each terrain, measured off the built curve. */
   mix: { terrain: Terrain; share: number }[]
   splits: CourseSplit[]
+  legs: CourseLeg[]
   lava: Hazard[]
   terrainAt(x: number, z: number): Terrain
   /** The split covering this lap fraction, if the road is divided there. */
@@ -127,53 +158,40 @@ export interface Course {
 }
 
 /**
- * The alternative way round a split: a bezier leaving and rejoining the main
- * curve along its own tangents, bowed out to the opposite side from it by `bow`.
+ * The two ways round one fork, as a mirrored pair of arcs about the straight
+ * line between where the road parts and where it rejoins.
+ *
+ * Mirrored is the whole trick: reflecting a curve cannot change its length, so
+ * the pair are exactly equal by construction rather than by a solver that has
+ * to be trusted. Both control points carry the same offset, which also makes
+ * each arc symmetric end to end, so a fork looks the same approached either way.
+ *
+ * The bow is chosen for how far apart the roads should look, not to match any
+ * other length. Solving it against the main curve was what made two of the
+ * three forks invisible: on a straight, matching the length needs almost no
+ * bow, so the branch lay on top of the road it was supposed to leave.
  */
-function bowedBranch(curve: THREE.CatmullRomCurve3, from: number, to: number, bow: number) {
+function forkArcs(curve: THREE.CatmullRomCurve3, from: number, to: number, bow: number) {
   const p0 = curve.getPointAt(from)
   const p1 = curve.getPointAt(to)
-  const t0 = curve.getTangentAt(from).setY(0).normalize()
-  const t1 = curve.getTangentAt(to).setY(0).normalize()
-
   const chord = new THREE.Vector3().subVectors(p1, p0)
-  const span = chord.length()
-  const side = new THREE.Vector3(-chord.z, 0, chord.x).normalize()
+  const along = chord.clone().normalize()
+  const side = new THREE.Vector3(-along.z, 0, along.x)
+  // Long enough that the roads peel away rather than turning a hard corner.
+  const reach = chord.length() * 0.52
 
-  // Whichever way the main stretch leans, this one leans the other, so the two
-  // ways round are on opposite sides of the road rather than on top of it.
-  const middle = curve.getPointAt((from + to) / 2)
-  const chordMiddle = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5)
-  const away = new THREE.Vector3().subVectors(middle, chordMiddle).dot(side) >= 0 ? -1 : 1
-
-  const reach = span * 0.28
-  return new THREE.CubicBezierCurve3(
+  const arc = (offset: number) => new THREE.CubicBezierCurve3(
     p0,
-    p0.clone().addScaledVector(t0, reach).addScaledVector(side, away * bow),
-    p1.clone().addScaledVector(t1, -reach).addScaledVector(side, away * bow),
+    p0.clone().addScaledVector(along, reach).addScaledVector(side, offset),
+    p1.clone().addScaledVector(along, -reach).addScaledVector(side, offset),
     p1,
   )
+  return [arc(-bow), arc(bow)] as const
 }
 
-/**
- * Solves the bow that makes the branch exactly as long as the stretch of main
- * curve it runs beside.
- *
- * Bowing further out is monotonically longer, so a bisection lands it. Matching
- * the length is what lets the rest of the game carry on treating progress as a
- * single lap fraction: both ways cover the same ground in the same parameter
- * range, so nothing downstream needs to know a choice was ever made.
- */
-function matchedBranch(curve: THREE.CatmullRomCurve3, length: number, from: number, to: number) {
-  const target = (to - from) * length
-  let low = 0
-  let high = 30
-  for (let step = 0; step < 44; step++) {
-    const bow = (low + high) / 2
-    if (bowedBranch(curve, from, to, bow).getLength() < target) low = bow
-    else high = bow
-  }
-  return bowedBranch(curve, from, to, (low + high) / 2)
+/** Evenly spaced points along one slice of a curve. */
+function sliceOfCurve(curve: THREE.Curve<THREE.Vector3>, from: number, to: number, steps = 40) {
+  return Array.from({ length: steps + 1 }, (_, i) => curve.getPointAt(from + ((to - from) * i) / steps))
 }
 
 export function buildCourse(def: CourseDefinition): Course {
@@ -201,50 +219,106 @@ export function buildCourse(def: CourseDefinition): Course {
     return best
   }
 
-  const distanceToRoad = (x: number, z: number) => samples.reduce((nearest, point) => (
+  let roadForClearance: THREE.Vector3[] = samples
+  const distanceToRoad = (x: number, z: number) => roadForClearance.reduce((nearest, point) => (
     Math.min(nearest, Math.hypot(point.x - x, point.z - z))
   ), Number.POSITIVE_INFINITY)
 
-  const splits: CourseSplit[] = (def.splits ?? []).map((split, index) => {
-    const branch = matchedBranch(curve, length, split.from, split.to)
+  /*
+   * A lap is a chain of legs: stretches of the main circuit, with a forked leg
+   * wherever the road divides. Each leg owns a slice of the lap fraction sized
+   * by its own length, so t still runs 0..1 round the lap and still maps evenly
+   * onto distance — which is what lets progress, pickups and the replay carry on
+   * knowing nothing about forks.
+   *
+   * Both ways round a fork are the same length, so the lap is the same length
+   * whichever way a racer goes.
+   */
+  const defs = (def.splits ?? []).slice().sort((a, b) => a.from - b.from)
+  const legs: CourseLeg[] = []
+  let cursor = 0
+
+  defs.forEach((split, index) => {
+    if (split.from > cursor) {
+      legs.push({ kind: 'shared', splitIndex: -1, curves: [curve], uFrom: cursor, uTo: split.from,
+        length: (split.from - cursor) * length, tFrom: 0, tTo: 0,
+        samples: sliceOfCurve(curve, cursor, split.from) })
+    }
+    const arcs = forkArcs(curve, split.from, split.to, split.bow ?? 6)
+    legs.push({ kind: 'split', splitIndex: index, curves: [arcs[0], arcs[1]], uFrom: split.from, uTo: split.to,
+      length: arcs[0].getLength(), tFrom: 0, tTo: 0, samples: arcs[0].getSpacedPoints(40) })
+    cursor = split.to
+  })
+  if (cursor < 1) {
+    legs.push({ kind: 'shared', splitIndex: -1, curves: [curve], uFrom: cursor, uTo: 1,
+      length: (1 - cursor) * length, tFrom: 0, tTo: 0,
+      samples: sliceOfCurve(curve, cursor, 1) })
+  }
+
+  // Every drivable metre, so scenery clearance and the dashed centre line cover
+  // the forks as well as the circuit.
+  const roadPoints = legs.flatMap((leg) => (
+    leg.kind === 'split' ? [...leg.curves[0].getSpacedPoints(40), ...leg.curves[1].getSpacedPoints(40)] : leg.samples
+  ))
+
+  roadForClearance = roadPoints
+  const lapLength = legs.reduce((total, leg) => total + leg.length, 0)
+  let walked = 0
+  for (const leg of legs) {
+    leg.tFrom = walked / lapLength
+    walked += leg.length
+    leg.tTo = walked / lapLength
+  }
+
+  const splits: CourseSplit[] = defs.map((split, index) => {
+    const leg = legs.find((entry) => entry.splitIndex === index)!
     return {
       index,
-      from: split.from,
-      to: split.to,
+      from: leg.tFrom,
+      to: leg.tTo,
       label: split.label,
       terrains: [split.left, split.right] as [Terrain, Terrain],
-      branch,
-      samples: branch.getSpacedPoints(48),
+      branches: [leg.curves[0], leg.curves[1]],
+      samples: [leg.curves[0].getSpacedPoints(40), leg.curves[1].getSpacedPoints(40)],
     }
   })
 
-  const splitAt = (t: number) => {
+  const legAt = (t: number) => {
     const wrapped = ((t % 1) + 1) % 1
-    for (const split of splits) {
-      if (wrapped >= split.from && wrapped < split.to) return split
-    }
-    return null
+    for (const leg of legs) if (wrapped >= leg.tFrom && wrapped < leg.tTo) return leg
+    return legs[legs.length - 1]
+  }
+
+  const splitAt = (t: number) => {
+    const leg = legAt(t)
+    return leg.splitIndex >= 0 ? splits[leg.splitIndex] : null
   }
 
   const terrainOn = (t: number, route?: Route) => {
     const split = splitAt(t)
     if (split) return split.terrains[route?.[split.index] === 1 ? 1 : 0]
-    const wrapped = ((t % 1) + 1) % 1
-    const point = curve.getPointAt(wrapped)
-    return terrainAt(point.x, point.z)
+    return terrainAt(frameAt(t, 0).position.x, frameAt(t, 0).position.z)
   }
 
   const frameAt = (t: number, lane: number, route?: Route) => {
     const wrapped = ((t % 1) + 1) % 1
-    const split = splitAt(wrapped)
-    // Both ways round are the same length, so the same lap fraction maps
-    // straight onto the branch's own arc length with nothing to rescale.
-    const taken = split && route?.[split.index] === 1
-      ? { curve: split.branch, at: (wrapped - split.from) / (split.to - split.from) }
-      : { curve, at: wrapped }
+    const leg = legAt(wrapped)
+    const local = leg.tTo > leg.tFrom ? (wrapped - leg.tFrom) / (leg.tTo - leg.tFrom) : 0
 
-    const point = taken.curve.getPointAt(taken.at)
-    const tangent = taken.curve.getTangentAt(taken.at).clone().setY(0).normalize()
+    let target: THREE.Curve<THREE.Vector3>
+    let at: number
+    if (leg.kind === 'split') {
+      target = leg.curves[route?.[leg.splitIndex] === 1 ? 1 : 0]
+      at = local
+    } else {
+      target = curve
+      // A shared leg is a slice of the main circuit, so its local fraction maps
+      // back onto that slice of the circuit's own arc length.
+      at = leg.uFrom + local * (leg.uTo - leg.uFrom)
+    }
+
+    const point = target.getPointAt(Math.min(1, Math.max(0, at)))
+    const tangent = target.getTangentAt(Math.min(1, Math.max(0, at))).clone().setY(0).normalize()
     const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
     return {
       position: point.clone().addScaledVector(side, lane),
@@ -298,7 +372,7 @@ export function buildCourse(def: CourseDefinition): Course {
     .sort((a, b) => b.share - a.share)
 
   return {
-    def, curve, samples, length, startT: def.startT, mix, splits, lava,
+    def, curve, samples: roadPoints, length: lapLength, startT: def.startT, mix, splits, legs, lava,
     terrainAt, splitAt, terrainOn, frameAt, paceAt, clearanceAt, lavaSpan, distanceToRoad,
   }
 }
@@ -375,42 +449,43 @@ const VOLCANO_ISLAND: CourseDefinition = {
   blurb: 'A longer island lap that forks three times. Same distance either way — pick the ground that suits your dinosaur.',
   icon: '🌋',
   tension: .32,
-  startT: .04,
+  startT: .02,
   points: [
     [-20, .12, -2], [-18.5, .12, -8], [-13, .12, -12.5], [-6, .12, -14.5],
     [2, .12, -14.5], [9, .12, -13], [15, .12, -9.5], [19, .12, -4],
     [20, .12, 2], [18, .12, 8], [13, .12, 12], [6, .12, 14],
     [-2, .12, 14], [-9, .12, 12.5], [-15, .12, 9], [-19, .12, 4],
   ],
+  /*
+   * Bowed wide enough that each fork is unmistakably two roads with ground
+   * between them. The left way bows out toward the sea and the right way in
+   * toward the middle of the island, so the coastal terrain is named first and
+   * the inland one second.
+   */
   splits: [
-    { from: .17, to: .31, left: 'Forest', right: 'Marsh', label: 'Jungle or lagoon' },
-    { from: .43, to: .57, left: 'Mountains', right: 'Plains', label: 'Volcano or beach' },
-    { from: .69, to: .83, left: 'Marsh', right: 'Forest', label: 'Mangrove or palms' },
+    { from: .17, to: .31, bow: 4.6, left: 'Marsh', right: 'Forest', label: 'Lagoon or jungle' },
+    { from: .43, to: .57, bow: 4.6, left: 'Plains', right: 'Mountains', label: 'Beach or volcano' },
+    { from: .69, to: .83, bow: 4.6, left: 'Forest', right: 'Marsh', label: 'Palms or mangrove' },
   ],
   /*
-   * Staggered left and right along the volcano fork, so there is always a way
-   * past but never a straight one. Anyone who cannot steer pays for taking the
-   * quick road.
-   */
-  /*
-   * Two pools down the left of the road, then two down the right, so the clear
-   * line is one long sweep across rather than a zigzag. Staggering them left and
-   * right and left again looked more dangerous but read as noise: there was a
-   * way past every pool and no way to see it coming, which punished the
-   * attentive as much as the careless.
+   * Two pools down one side of the volcano road then two down the other, so the
+   * clear line is one long sweep across rather than a zigzag. Staggering them
+   * side to side looked more dangerous but read as noise: there was a way past
+   * every pool and no way to see it coming.
    */
   lava: [
-    { t: .452, lane: -.62, radius: .8 },
-    { t: .482, lane: -.62, radius: .8 },
-    { t: .532, lane: .62, radius: .8 },
-    { t: .562, lane: .62, radius: .8 },
+    { t: .458, lane: -.62, radius: .8, branch: 1 },
+    { t: .481, lane: -.62, radius: .8, branch: 1 },
+    { t: .506, lane: .62, radius: .8, branch: 1 },
+    { t: .529, lane: .62, radius: .8, branch: 1 },
   ],
-  volcano: { x: 13, z: 1, scale: 1.5 },
+  volcano: { x: 7.5, z: 0, scale: 1.25 },
+  sea: { water: '#2f8fb5', sky: '#8fd8ee', sand: '#e6d3a3', radius: [27, 21] },
   biomes: {
-    Forest: { center: [-1, -8], patch: [11, 6.5], spread: [9, 5] },
-    Mountains: { center: [13, 1], patch: [8.5, 8], spread: [5.5, 5.5] },
-    Marsh: { center: [-13, 4], patch: [7.5, 7], spread: [5.5, 5] },
-    Plains: { center: [1, 17], patch: [13, 6], spread: [11, 4.5] },
+    Forest: { center: [-3, -9], patch: [11, 6], spread: [9, 4.5] },
+    Mountains: { center: [9.5, 0.5], patch: [8, 7.5], spread: [5, 5] },
+    Marsh: { center: [-14, 3], patch: [7.5, 7], spread: [5.5, 5] },
+    Plains: { center: [0, 18], patch: [14, 6], spread: [12, 4.5] },
   },
 }
 
