@@ -92,9 +92,9 @@ function chooseBranch(racer: RacerState, split: CourseSplit) {
 /** How far ahead a computer racer looks for lava, in world units. */
 const LAVA_LOOKAHEAD = 4.6
 /** Lane units per second it edges aside to miss a pool. */
-const LAVA_DODGE = 6.5
+const LAVA_DODGE = 4.5
 /** Room a racer wants beside a pool before it stops correcting. */
-const LAVA_MARGIN = 0.45
+const LAVA_MARGIN = 0.35
 const LANE_LIMIT = 1.05
 
 /**

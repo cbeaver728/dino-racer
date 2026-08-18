@@ -17,7 +17,7 @@ import {
   standingsOf,
   type RacerState,
 } from './raceEngine'
-import { FOLLOW_VIEW, OVERVIEW_VIEW, RaceWorld } from './RaceWorld'
+import { FOLLOW_VIEW, OVERVIEW_VIEW, RaceWorld, overviewFor } from './RaceWorld'
 import { Racers } from './Racers'
 import { ReplayRacers } from './ReplayRacers'
 import {
@@ -127,7 +127,7 @@ export default function RaceWorldApp() {
     const next = order[(at + 1) % order.length]
     // Coming back from a chase would otherwise leave the camera parked a few
     // feet behind a dinosaur, which reads as neither free nor following.
-    if (next === 'free') snapView(OVERVIEW_VIEW)
+    if (next === 'free') snapView(overviewFor(course.extent))
     if (next === 'leader') snapView(FOLLOW_VIEW)
     return next
   })

@@ -48,16 +48,27 @@ export interface SplitDefinition {
 }
 
 /**
- * A pool of lava, placed on the road rather than in the world: a lap fraction
- * and how far off the centre line it sits. Authoring it against the track means
- * a pool cannot drift off the road when the course shape is tweaked.
+ * Lava is grown from the volcano rather than placed by hand.
+ *
+ * Every stretch of road within `reach` of the cone gets some, and the closer it
+ * runs the more it gets and the wider the flows are — so the far side of the
+ * island stays clean, the coast road catches a few strays, and the road that
+ * squeezes past the crater is a mess. Placing pools one at a time could not
+ * express that, and left the lava confined to a single stretch.
  */
-export interface LavaDefinition {
-  t: number
-  lane: number
-  radius: number
-  /** Which way round the split it lies on, when it lies inside one. */
-  branch?: 0 | 1
+export interface LavaField {
+  /** How far the flows reach from the cone. */
+  reach: number
+  /** Widest a flow gets, right beside the cone. */
+  maxRadius: number
+  /** Road samples between attempts; larger is sparser. */
+  spacing: number
+  /**
+   * Clear road between one flow and the next. They are obstacles to be picked
+   * through for a faster lap, not a lake — so they are kept apart far enough
+   * that a driver can always see the gap and take it.
+   */
+  gap: number
 }
 
 /** A lava pool resolved to where it actually sits in the world. */
@@ -83,7 +94,7 @@ export interface CourseDefinition {
    */
   bridgeMinY?: number
   splits?: SplitDefinition[]
-  lava?: LavaDefinition[]
+  lava?: LavaField
   /** Volcano cone, for the island. */
   volcano?: { x: number; z: number; scale: number }
   /**
@@ -91,6 +102,11 @@ export interface CourseDefinition {
    * landmass is laid on top for the circuit to sit on.
    */
   sea?: { water: string; sky: string; sand: string; radius: [number, number] }
+  /**
+   * Road surface and default shoulder. The stock sandy road vanishes against a
+   * sand island, so a course laid on pale ground names a darker one.
+   */
+  road?: { surface: string; shoulder: string }
 }
 
 /** A built fork. Neither way is the main circuit: the road parts in two. */
@@ -141,6 +157,8 @@ export interface Course {
   mix: { terrain: Terrain; share: number }[]
   splits: CourseSplit[]
   legs: CourseLeg[]
+  /** How far the track reaches from the middle, so the camera can frame it. */
+  extent: number
   lava: Hazard[]
   terrainAt(x: number, z: number): Terrain
   /** The split covering this lap fraction, if the road is divided there. */
@@ -158,35 +176,112 @@ export interface Course {
 }
 
 /**
- * The two ways round one fork, as a mirrored pair of arcs about the straight
- * line between where the road parts and where it rejoins.
+ * One way round a fork: a path that leaves the road along the road's own
+ * direction, bows out to `bow` at its midpoint, and rejoins pointing the way the
+ * road goes.
  *
- * Mirrored is the whole trick: reflecting a curve cannot change its length, so
- * the pair are exactly equal by construction rather than by a solver that has
- * to be trusted. Both control points carry the same offset, which also makes
- * each arc symmetric end to end, so a fork looks the same approached either way.
- *
- * The bow is chosen for how far apart the roads should look, not to match any
- * other length. Solving it against the main curve was what made two of the
- * three forks invisible: on a straight, matching the length needs almost no
- * bow, so the branch lay on top of the road it was supposed to leave.
+ * Built as two cubic segments meeting at the bowed midpoint, because a single
+ * cubic cannot both match a tangent at each end and be pushed sideways in the
+ * middle. Matching those tangents is the whole point: bending the control
+ * points sideways instead put a thirty degree corner at every fork, which is
+ * what tore triangular gaps between the road ribbons and snapped the racers
+ * round as they entered and left.
  */
-function forkArcs(curve: THREE.CatmullRomCurve3, from: number, to: number, bow: number) {
+function forkPath(curve: THREE.CatmullRomCurve3, from: number, to: number, bow: number) {
   const p0 = curve.getPointAt(from)
   const p1 = curve.getPointAt(to)
+  const t0 = curve.getTangentAt(from).clone().setY(0).normalize()
+  const t1 = curve.getTangentAt(to).clone().setY(0).normalize()
+
   const chord = new THREE.Vector3().subVectors(p1, p0)
+  const span = chord.length()
   const along = chord.clone().normalize()
   const side = new THREE.Vector3(-along.z, 0, along.x)
-  // Long enough that the roads peel away rather than turning a hard corner.
-  const reach = chord.length() * 0.52
+  const middle = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5).addScaledVector(side, bow)
+  const reach = span * 0.27
 
-  const arc = (offset: number) => new THREE.CubicBezierCurve3(
+  const path = new THREE.CurvePath<THREE.Vector3>()
+  path.add(new THREE.CubicBezierCurve3(
     p0,
-    p0.clone().addScaledVector(along, reach).addScaledVector(side, offset),
-    p1.clone().addScaledVector(along, -reach).addScaledVector(side, offset),
+    p0.clone().addScaledVector(t0, reach),
+    middle.clone().addScaledVector(along, -reach),
+    middle,
+  ))
+  path.add(new THREE.CubicBezierCurve3(
+    middle,
+    middle.clone().addScaledVector(along, reach),
+    p1.clone().addScaledVector(t1, -reach),
     p1,
-  )
-  return [arc(-bow), arc(bow)] as const
+  ))
+  return path
+}
+
+/**
+ * Both ways round one fork, exactly equal in length.
+ *
+ * Tangent continuity costs the mirror symmetry that used to make the pair equal
+ * for free, so the shorter way is bowed out further until it matches. Bowing
+ * further is monotonically longer, so a bisection lands it, and both ways still
+ * bow at least as far as asked — which is what keeps them visibly two roads.
+ */
+function forkPair(curve: THREE.CatmullRomCurve3, from: number, to: number, wanted: number) {
+  const lengthAt = (bow: number) => forkPath(curve, from, to, bow).getLength()
+  const target = Math.max(lengthAt(-wanted), lengthAt(wanted))
+
+  const matched = (sign: number) => {
+    let low = wanted
+    let high = wanted + 24
+    for (let step = 0; step < 40; step++) {
+      const bow = (low + high) / 2
+      if (lengthAt(sign * bow) < target) low = bow
+      else high = bow
+    }
+    return forkPath(curve, from, to, sign * ((low + high) / 2))
+  }
+  return [matched(-1), matched(1)] as const
+}
+
+const drift = (seed: number) => {
+  const value = Math.sin(seed * 975.31) * 43758.5453
+  return value - Math.floor(value)
+}
+
+/**
+ * Flows down one stretch of road. They are banked to one side at a time, so
+ * however thick the lava gets there is always a clear line down the other side
+ * — the road is meant to be threaded, not blocked.
+ */
+function flowsAlong(points: THREE.Vector3[], volcano: { x: number; z: number }, field: LavaField, seed: number) {
+  const pools: Hazard[] = []
+  let previous: THREE.Vector3 | null = null
+  for (let index = 1; index < points.length - 1; index += field.spacing) {
+    const point = points[index]
+    const range = Math.hypot(point.x - volcano.x, point.z - volcano.z)
+    if (range > field.reach) continue
+
+    // Only the half of the island the cone stands on. Flows creeping round the
+    // far side read as scattered accidents rather than as coming from anywhere.
+    if (point.x * volcano.x + point.z * volcano.z <= 0) continue
+
+    const closeness = 1 - range / field.reach
+    if (closeness < 0.12) continue
+    if (drift(seed + index * 7.3) > closeness * 1.15) continue
+
+    const tangent = points[index + 1].clone().sub(points[index - 1]).setY(0).normalize()
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
+    const bank = Math.floor(index / field.spacing) % 2 ? 1 : -1
+    // Placed across the racing line, not beside it. Banked off to one verge they
+    // could all be missed by holding the middle, which is no test of anything;
+    // straddling the line means a straight run catches some and a driver who
+    // picks their way through catches none.
+    const lane = bank * (0.12 + drift(seed + index * 3.1) * 0.55)
+    const spot = point.clone().addScaledVector(side, lane)
+    // Keep them spotty: a flow too close behind the last one makes a wall.
+    if (previous && previous.distanceTo(spot) < field.gap) continue
+    previous = spot
+    pools.push({ x: spot.x, z: spot.z, radius: field.maxRadius * (0.5 + closeness * 0.5) })
+  }
+  return pools
 }
 
 /** Evenly spaced points along one slice of a curve. */
@@ -244,7 +339,7 @@ export function buildCourse(def: CourseDefinition): Course {
         length: (split.from - cursor) * length, tFrom: 0, tTo: 0,
         samples: sliceOfCurve(curve, cursor, split.from) })
     }
-    const arcs = forkArcs(curve, split.from, split.to, split.bow ?? 6)
+    const arcs = forkPair(curve, split.from, split.to, split.bow ?? 6)
     legs.push({ kind: 'split', splitIndex: index, curves: [arcs[0], arcs[1]], uFrom: split.from, uTo: split.to,
       length: arcs[0].getLength(), tFrom: 0, tTo: 0, samples: arcs[0].getSpacedPoints(40) })
     cursor = split.to
@@ -261,6 +356,7 @@ export function buildCourse(def: CourseDefinition): Course {
     leg.kind === 'split' ? [...leg.curves[0].getSpacedPoints(40), ...leg.curves[1].getSpacedPoints(40)] : leg.samples
   ))
 
+  const extent = roadPoints.reduce((far, point) => Math.max(far, Math.hypot(point.x, point.z)), 0)
   roadForClearance = roadPoints
   const lapLength = legs.reduce((total, leg) => total + leg.length, 0)
   let walked = 0
@@ -327,14 +423,63 @@ export function buildCourse(def: CourseDefinition): Course {
     }
   }
 
-  // Resolved once against the road they were authored on, so a pool sits where
-  // it was placed however the course shape is tweaked around it.
-  const lava: Hazard[] = (def.lava ?? []).map((pool) => {
-    const onBranch = pool.branch === 1
-    const route = onBranch ? splits.map((split) => (split === splitAt(pool.t) ? 1 : 0)) : undefined
-    const spot = frameAt(pool.t, pool.lane, route).position
-    return { x: spot.x, z: spot.z, radius: pool.radius }
-  })
+  // Grown from the cone once the roads exist, so every stretch within reach of
+  // it gets flows sized by how close it runs.
+  const lava: Hazard[] = []
+  if (def.lava && def.volcano) {
+    legs.forEach((leg, index) => {
+      const strands = leg.kind === 'split'
+        ? [leg.curves[0].getSpacedPoints(70), leg.curves[1].getSpacedPoints(70)]
+        : [leg.samples]
+      strands.forEach((strand, side) => {
+        lava.push(...flowsAlong(strand, def.volcano!, def.lava!, index * 137 + side * 61))
+      })
+    })
+  }
+
+  /*
+   * Clears any flow that would close a road outright.
+   *
+   * The flows are banked to one side at a time so a line should always exist,
+   * but where the bank changes two of them can meet across the middle. Rather
+   * than tune the scatter until that never happens, the road is walked and the
+   * offending flow removed: the track is meant to be threaded, and a wall of
+   * lava is not a choice.
+   */
+  const openTheLine = (strand: THREE.Vector3[]) => {
+    for (let index = 0; index < strand.length - 1; index++) {
+      const point = strand[index]
+      const tangent = strand[index + 1].clone().sub(point).setY(0)
+      if (tangent.lengthSq() < 1e-6) continue
+      tangent.normalize()
+      const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
+
+      for (let attempt = 0; attempt < 4; attempt++) {
+        let clear = 0
+        for (let lane = -1.05; lane <= 1.06; lane += 0.15) {
+          const x = point.x + side.x * lane
+          const z = point.z + side.z * lane
+          if (!lava.some((pool) => (x - pool.x) ** 2 + (z - pool.z) ** 2 < pool.radius ** 2)) clear++
+        }
+        if (clear > 0) break
+        // Drop whichever flow sits closest to the middle of the road here.
+        let worst = -1
+        let nearest = Number.POSITIVE_INFINITY
+        lava.forEach((pool, at) => {
+          const range = Math.hypot(pool.x - point.x, pool.z - point.z)
+          if (range < nearest) { nearest = range; worst = at }
+        })
+        if (worst < 0) break
+        lava.splice(worst, 1)
+      }
+    }
+  }
+  for (const leg of legs) {
+    if (leg.kind === 'split') {
+      openTheLine(leg.curves[0].getSpacedPoints(70))
+      openTheLine(leg.curves[1].getSpacedPoints(70))
+    } else openTheLine(leg.samples)
+  }
 
   const paceAt = (x: number, z: number) => {
     for (const pool of lava) {
@@ -345,10 +490,7 @@ export function buildCourse(def: CourseDefinition): Course {
 
   // The stretch lava lives on, with room either side for the run in and out.
   // Everywhere else the racers can skip looking for it entirely.
-  const lavaTs = (def.lava ?? []).map((pool) => pool.t)
-  const lavaSpan = lavaTs.length
-    ? { from: Math.min(...lavaTs) - .06, to: Math.max(...lavaTs) + .04 }
-    : null
+  const lavaSpan = lava.length ? { from: 0, to: 1 } : null
 
   const clearanceAt = (x: number, z: number) => {
     let nearest = Number.POSITIVE_INFINITY
@@ -372,7 +514,7 @@ export function buildCourse(def: CourseDefinition): Course {
     .sort((a, b) => b.share - a.share)
 
   return {
-    def, curve, samples: roadPoints, length: lapLength, startT: def.startT, mix, splits, legs, lava,
+    def, curve, samples: roadPoints, length: lapLength, startT: def.startT, mix, splits, legs, extent, lava,
     terrainAt, splitAt, terrainOn, frameAt, paceAt, clearanceAt, lavaSpan, distanceToRoad,
   }
 }
@@ -468,19 +610,15 @@ const VOLCANO_ISLAND: CourseDefinition = {
     { from: .69, to: .83, bow: 4.6, left: 'Forest', right: 'Marsh', label: 'Palms or mangrove' },
   ],
   /*
-   * Two pools down one side of the volcano road then two down the other, so the
-   * clear line is one long sweep across rather than a zigzag. Staggering them
-   * side to side looked more dangerous but read as noise: there was a way past
-   * every pool and no way to see it coming.
+   * Lava spreads out from the cone across the whole eastern half of the island:
+   * thick and wide on the road that squeezes past the crater, thinning to the
+   * odd flow on the coast road, and nothing at all on the far side.
    */
-  lava: [
-    { t: .458, lane: -.62, radius: .8, branch: 1 },
-    { t: .481, lane: -.62, radius: .8, branch: 1 },
-    { t: .506, lane: .62, radius: .8, branch: 1 },
-    { t: .529, lane: .62, radius: .8, branch: 1 },
-  ],
+  lava: { reach: 17, maxRadius: 1.02, spacing: 3, gap: 3.6 },
   volcano: { x: 7.5, z: 0, scale: 1.25 },
-  sea: { water: '#2f8fb5', sky: '#8fd8ee', sand: '#e6d3a3', radius: [27, 21] },
+  sea: { water: '#2f8fb5', sky: '#8fd8ee', sand: '#e8d6a6', radius: [27, 21] },
+  // Packed volcanic earth: dark enough to read as a road across pale sand.
+  road: { surface: '#9c6b42', shoulder: '#6d4527' },
   biomes: {
     Forest: { center: [-3, -9], patch: [11, 6], spread: [9, 4.5] },
     Mountains: { center: [9.5, 0.5], patch: [8, 7.5], spread: [5, 5] },

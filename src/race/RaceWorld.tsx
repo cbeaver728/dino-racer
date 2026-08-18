@@ -58,17 +58,17 @@ function ribbonGeometry(samples: THREE.Vector3[], width: number, lift = 0, close
 }
 
 /** One stretch of road: the main circuit, or one way round a fork. */
-function RoadRibbon({ samples, closed, accent }: {
-  samples: THREE.Vector3[]; closed: boolean; accent?: string
+function RoadRibbon({ samples, closed, accent, surface, shoulder }: {
+  samples: THREE.Vector3[]; closed: boolean; accent?: string; surface?: string; shoulder?: string
 }) {
-  const shoulder = useMemo(() => ribbonGeometry(samples, 1.72, .015, closed), [samples, closed])
+  const verge = useMemo(() => ribbonGeometry(samples, 1.72, .015, closed), [samples, closed])
   const road = useMemo(() => ribbonGeometry(samples, 1.46, .035, closed), [samples, closed])
   return <group>
-    <mesh geometry={shoulder} receiveShadow>
-      <meshStandardMaterial color={accent ?? '#796647'} roughness={1} side={THREE.DoubleSide} />
+    <mesh geometry={verge} receiveShadow>
+      <meshStandardMaterial color={accent ?? shoulder ?? '#796647'} roughness={1} side={THREE.DoubleSide} />
     </mesh>
     <mesh geometry={road} receiveShadow>
-      <meshStandardMaterial color="#cda968" roughness={.98} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={surface ?? '#cda968'} roughness={.98} side={THREE.DoubleSide} />
     </mesh>
   </group>
 }
@@ -88,13 +88,14 @@ const BRANCH_SHOULDER: Record<Terrain, string> = {
 function RaceRoad({ course }: { course: Course }) {
   const centerMarkers = course.samples.filter((_, index) => index % 9 < 4)
   const forked = course.splits.length > 0
+  const paint = course.def.road
   return <group>
     {/* An unforked circuit is one closed ribbon. A forked one is drawn leg by
         leg, with both ways round each fork tinted by the ground they cross. */}
-    {!forked && <RoadRibbon samples={course.curve.getSpacedPoints(180)} closed />}
+    {!forked && <RoadRibbon samples={course.curve.getSpacedPoints(180)} closed surface={paint?.surface} shoulder={paint?.shoulder} />}
     {forked && course.legs.map((leg, index) => {
       if (leg.kind === 'shared') {
-        return <RoadRibbon key={`leg-${index}`} samples={leg.samples} closed={false} />
+        return <RoadRibbon key={`leg-${index}`} samples={leg.samples} closed={false} surface={paint?.surface} shoulder={paint?.shoulder} />
       }
       const split = course.splits[leg.splitIndex]
       return <group key={`fork-${index}`}>
@@ -104,6 +105,7 @@ function RaceRoad({ course }: { course: Course }) {
             samples={split.samples[side]}
             closed={false}
             accent={BRANCH_SHOULDER[split.terrains[side]]}
+            surface={paint?.surface}
           />
         ))}
       </group>
@@ -114,21 +116,68 @@ function RaceRoad({ course }: { course: Course }) {
   </group>
 }
 
-/** Glowing pools on the road. Anything that runs through one is slowed. */
+/** An irregular outline, so a flow reads as spilled rather than stamped. */
+function blobShape(radius: number, seed: number, wobble: number, points = 26) {
+  const shape = new THREE.Shape()
+  for (let step = 0; step < points; step++) {
+    const around = (step / points) * Math.PI * 2
+    // Two overlapping waves so the outline lobes rather than ripples evenly.
+    const ripple = 1 - wobble / 2
+      + wobble * (0.6 * seeded(seed + step * 1.7) + 0.4 * Math.sin(around * 3 + seed))
+    const at = radius * ripple
+    const x = Math.cos(around) * at
+    const y = Math.sin(around) * at
+    if (step === 0) shape.moveTo(x, y)
+    else shape.lineTo(x, y)
+  }
+  shape.closePath()
+  return shape
+}
+
+/** The outline given thickness, with a rounded lip rather than a cut edge. */
+function blobSlab(radius: number, seed: number, wobble: number, depth: number, lip: number) {
+  return new THREE.ExtrudeGeometry(blobShape(radius, seed, wobble), {
+    depth, bevelEnabled: true, bevelSize: lip, bevelThickness: lip, bevelSegments: 2, steps: 1,
+  })
+}
+
+/**
+ * A flow of lava: a raised mound of black crust with molten rock welling up
+ * through it.
+ *
+ * Built with thickness rather than painted on the road. Flat, it read as a
+ * scorch mark however it was coloured — something the eye files as decoration
+ * and drives straight over. Standing proud of the surface, with a crust that
+ * catches the light and a domed molten middle, it reads as an obstacle, which
+ * is the whole point of putting it there.
+ */
 function LavaPools({ course }: { course: Course }) {
-  if (!course.lava.length) return null
-  return <group>{course.lava.map((pool, index) => (
-    <group key={index} position={[pool.x, .09, pool.z]}>
-      <mesh rotation={[-Math.PI / 2, 0, index]}>
-        <circleGeometry args={[pool.radius, 26]} />
-        <meshStandardMaterial color="#ff6a1e" emissive="#ff3b00" emissiveIntensity={1.5} roughness={.5} />
+  const flows = useMemo(() => course.lava.map((pool, index) => ({
+    pool,
+    spin: seeded(index * 5.1) * Math.PI * 2,
+    crust: blobSlab(pool.radius * 1.18, index * 3.7, .36, .05, .055),
+    molten: blobSlab(pool.radius * .92, index * 6.3 + 90, .4, .1, .04),
+  })), [course])
+
+  useEffect(() => () => {
+    for (const flow of flows) { flow.crust.dispose(); flow.molten.dispose() }
+  }, [flows])
+
+  if (!flows.length) return null
+  return <group>{flows.map((flow, index) => (
+    // Laid on the road, then extruded upward: inside this group +Z is up.
+    <group key={index} position={[flow.pool.x, .045, flow.pool.z]} rotation={[-Math.PI / 2, 0, flow.spin]}>
+      <mesh geometry={flow.crust} castShadow receiveShadow>
+        <meshStandardMaterial color="#150a07" roughness={1} />
       </mesh>
-      {/* A cooler crust around the rim so the hot centre reads as depth. */}
-      <mesh position={[0, -.012, 0]} rotation={[-Math.PI / 2, 0, index]}>
-        <circleGeometry args={[pool.radius * 1.28, 26]} />
-        <meshStandardMaterial color="#4a2418" roughness={1} />
+      <mesh geometry={flow.molten} position={[0, 0, .03]} castShadow>
+        <meshStandardMaterial color="#8e1f04" emissive="#c02e06" emissiveIntensity={1.05} roughness={.68} />
       </mesh>
-      <pointLight color="#ff5a12" intensity={2.4} distance={pool.radius * 5} position={[0, .5, 0]} />
+      {/* The gooey middle, welling up out of the crust. */}
+      <mesh position={[0, 0, .15]} scale={[1, 1, .42]}>
+        <sphereGeometry args={[flow.pool.radius * .62, 18, 12]} />
+        <meshStandardMaterial color="#d94a0a" emissive="#ff6a14" emissiveIntensity={1.5} roughness={.4} />
+      </mesh>
     </group>
   ))}</group>
 }
@@ -137,15 +186,13 @@ function LavaPools({ course }: { course: Course }) {
 function Palm({ x, z, size, lean }: { x: number; z: number; size: number; lean: number }) {
   return <group position={[x, 0, z]} scale={size} rotation={[0, seeded(x * 3 + z) * Math.PI * 2, 0]}>
     <group rotation={[0, 0, lean]}>
-      {[0, 1, 2, 3].map((joint) => (
-        <mesh key={joint} castShadow position={[joint * 0.08, 0.34 + joint * 0.62, 0]} rotation={[0, 0, joint * 0.05]}>
-          <cylinderGeometry args={[0.11 - joint * 0.015, 0.14 - joint * 0.015, 0.68, 10]} />
-          <meshStandardMaterial color="#8a6a44" roughness={1} />
-        </mesh>
-      ))}
+      <mesh castShadow position={[0.12, 1.32, 0]} rotation={[0, 0, 0.06]}>
+        <cylinderGeometry args={[0.085, 0.15, 2.64, 9]} />
+        <meshStandardMaterial color="#8a6a44" roughness={1} />
+      </mesh>
       <group position={[0.26, 2.66, 0]}>
-        {[0, 1, 2, 3, 4, 5].map((frond) => {
-          const around = (frond / 6) * Math.PI * 2
+        {[0, 1, 2, 3, 4].map((frond) => {
+          const around = (frond / 5) * Math.PI * 2
           return <mesh
             key={frond}
             position={[Math.cos(around) * 0.62, -0.06, Math.sin(around) * 0.62]}
@@ -260,20 +307,36 @@ const TRACK_DETAIL_COLORS: Record<Terrain, string> = {
  * adding anything a racing dinosaur can collide with or hide behind.
  */
 function TrackTerrainDetails({ course }: { course: Course }) {
-  const details = useMemo(() => Array.from({ length: 44 }, (_, index) => {
-    const t = (index + .5) / 44
-    const point = course.curve.getPointAt(t)
-    const tangent = course.curve.getTangentAt(t).setY(0).normalize()
-    const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
-    const terrain = course.terrainAt(point.x, point.z)
-    const offset = (index % 2 ? 1 : -1) * (.78 + seeded(index + 1500) * .34)
-    return {
-      terrain,
-      position: point.clone().addScaledVector(side, offset),
-      angle: Math.atan2(tangent.x, tangent.z),
-      scale: .18 + seeded(index + 1540) * .16,
+  const details = useMemo(() => {
+    /*
+     * Placed along the road that exists, not along the main curve.
+     *
+     * On a forked course the main curve runs straight through the ground
+     * between the two ways round, so reading positions off it scattered these
+     * decals over bare sand where no road is — which is what those stray
+     * shapes in the middle of the island were.
+     */
+    const road = course.samples
+    const step = Math.max(1, Math.floor(road.length / 52))
+    const spots: { terrain: Terrain; position: THREE.Vector3; angle: number; scale: number }[] = []
+    for (let index = 0; index * step < road.length - 1; index++) {
+      const at = index * step
+      const point = road[at]
+      const next = road[Math.min(at + 1, road.length - 1)]
+      const tangent = next.clone().sub(point).setY(0)
+      if (tangent.lengthSq() < 1e-6) continue
+      tangent.normalize()
+      const side = new THREE.Vector3(-tangent.z, 0, tangent.x)
+      const offset = (index % 2 ? 1 : -1) * (.78 + seeded(index + 1500) * .34)
+      spots.push({
+        terrain: course.terrainAt(point.x, point.z),
+        position: point.clone().addScaledVector(side, offset),
+        angle: Math.atan2(tangent.x, tangent.z),
+        scale: .18 + seeded(index + 1540) * .16,
+      })
     }
-  }), [course])
+    return spots
+  }, [course])
 
   return <group>{details.map((detail, index) => <mesh
     key={index}
@@ -281,9 +344,11 @@ function TrackTerrainDetails({ course }: { course: Course }) {
     rotation={[-Math.PI / 2, 0, detail.angle]}
     scale={[detail.terrain === 'Marsh' ? 1.7 : 1, 1, 1]}
   >
+    {/* Round, not hexagonal. At this size a six-sided circle read as a stray
+        shard of geometry lying on the track. */}
     {detail.terrain === 'Forest'
-      ? <ringGeometry args={[detail.scale * .42, detail.scale, 6]} />
-      : <circleGeometry args={[detail.scale, detail.terrain === 'Mountains' ? 6 : 12]} />}
+      ? <ringGeometry args={[detail.scale * .42, detail.scale, 20]} />
+      : <circleGeometry args={[detail.scale, 20]} />}
     <meshBasicMaterial color={TRACK_DETAIL_COLORS[detail.terrain]} transparent opacity={detail.terrain === 'Marsh' ? .62 : .72} depthWrite={false} />
   </mesh>)}</group>
 }
@@ -365,9 +430,9 @@ function Tree({ x, z, size, broadleaf }: { x: number; z: number; size: number; b
 
 function ForestBiome({ layout, course }: { layout: BiomeLayout; course: Course }) {
   const tropical = !!course.def.sea
-  const trees = useMemo(() => scatter(tropical ? 96 : 152, 400, layout, course, 2.65), [tropical, layout, course])
+  const trees = useMemo(() => scatter(tropical ? 44 : 152, 400, layout, course, 2.65), [tropical, layout, course])
   const tufts = useMemo(() => scatter(38, 811, layout, course, 2.1), [layout, course])
-  const palms = useMemo(() => (tropical ? scatter(44, 3300, layout, course, 2.5) : []), [tropical, layout, course])
+  const palms = useMemo(() => (tropical ? scatter(17, 3300, layout, course, 2.5) : []), [tropical, layout, course])
   return <group>
     <GroundPatch layout={layout} color={tropical ? '#3f8a44' : '#477d43'} />
     {palms.map((palm, index) => (
@@ -380,9 +445,9 @@ function ForestBiome({ layout, course }: { layout: BiomeLayout; course: Course }
 
 function PlainsBiome({ layout, course }: { layout: BiomeLayout; course: Course }) {
   const tropical = !!course.def.sea
-  const grass = useMemo(() => scatter(144, 900, layout, course, 1.9), [layout, course])
-  const flowers = useMemo(() => scatter(24, 1300, layout, course, 1.9), [layout, course])
-  const palms = useMemo(() => (tropical ? scatter(30, 2100, layout, course, 2.4) : []), [tropical, layout, course])
+  const grass = useMemo(() => scatter(tropical ? 46 : 144, 900, layout, course, 1.9), [tropical, layout, course])
+  const flowers = useMemo(() => scatter(tropical ? 8 : 24, 1300, layout, course, 1.9), [tropical, layout, course])
+  const palms = useMemo(() => (tropical ? scatter(13, 2100, layout, course, 2.4) : []), [tropical, layout, course])
   return <group>
     <GroundPatch layout={layout} color={tropical ? '#ecd9a6' : '#8cb85e'} />
     {palms.map((palm, index) => (
@@ -412,8 +477,18 @@ function StartGate({ course }: { course: Course }) {
   </group>
 }
 
-/** High and back enough to hold the whole circuit in frame. */
+/**
+ * High and back enough to hold a circuit in frame, sized for the Wild Circuit
+ * and scaled up for anything bigger so a longer track is not shown cropped.
+ */
 export const OVERVIEW_VIEW = [29, 31, 36] as const
+const FRAMED_EXTENT = 19
+
+/** The overview offset a course of this reach needs. */
+export const overviewFor = (extent: number) => {
+  const zoom = Math.max(1, extent / FRAMED_EXTENT)
+  return [OVERVIEW_VIEW[0] * zoom, OVERVIEW_VIEW[1] * zoom, OVERVIEW_VIEW[2] * zoom] as const
+}
 
 /**
  * The offset the leader is followed from. Orbit controls keep the camera the
@@ -460,7 +535,7 @@ function CourseCamera({ follow, resetView, resetOffset }: {
       controls.current.update()
     }
   })
-  return <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={.08} enablePan minDistance={16} maxDistance={64} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
+  return <OrbitControls ref={controls as never} makeDefault enableDamping dampingFactor={.08} enablePan minDistance={16} maxDistance={96} minPolarAngle={.42} maxPolarAngle={1.25} target={[0, 0, 0]} />
 }
 
 // A racing dinosaur is a bit over two world units long, so the camera sits about
