@@ -32,6 +32,7 @@ Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and respo
 - **Two laps**, with a lap counter and tornadoes spread across the real race duration.
 - **Smoking Isle** — a third, longer track: a tropical island lap round a live volcano that forks three times. Each fork offers two ways round of exactly equal length through different terrain, so the choice is about what suits your dinosaur and never about distance. Lava pools on the volcano fork slow anything that runs through them.
 - **Replay** — every race is recorded and can be watched again from the podium, with play/pause, a scrub bar, 0.5x/1x/2x speed and the same cameras the race uses. It opens on the wide shot of the whole circuit.
+- **Racing guide** — an info button beside the stats in the lab opens a panel listing every rule the race runs on, terrain by terrain, ticking the ones your dinosaur already has. It is generated from the same rule table the simulation walks, so it cannot go stale.
 - **Sound** — countdown, start, star, tornado, final lap and finish cues, synthesised in `src/game/sound.ts` with no audio files, plus a mute button on both game pages. Sound starts muted.
 
 ### Not yet done

@@ -3,6 +3,7 @@ import { DinoScene } from './components/DinoScene'
 import { PartSelector } from './components/PartSelector'
 import { StatsPanel } from './components/StatsPanel'
 import { SaveDinoModal } from './components/SaveDinoModal'
+import { RacingGuide } from './components/RacingGuide'
 import { BODIES, COLORS, COLOR_NAMES, DEFAULT_DINO, FEATURES, FEET, FRONT_LIMBS, HEADS, HIND_LEGS, PATTERN_COLORS, PATTERN_COLOR_NAMES, SKINS, TAILS, isBiped, type DinosaurConfig } from './game/dinosaurTypes'
 import { deleteDinosaur, loadRoster, saveDinosaur } from './game/storage'
 import type { SavedDinosaur } from './game/dinosaurTypes'
@@ -13,6 +14,7 @@ export default function App() {
   const [roster, setRoster] = useState<SavedDinosaur[]>(loadRoster)
   const [dino, setDino] = useState<DinosaurConfig>(DEFAULT_DINO)
   const [saved, setSaved] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
   const set = <K extends keyof DinosaurConfig>(key: K, value: DinosaurConfig[K]) => setDino((current) => ({ ...current, [key]: value }))
 
   const removeDino = (id: string) => {
@@ -82,7 +84,7 @@ export default function App() {
         <section className="preview">
           <DinoScene config={dino} />
           <div className={`stance ${biped ? 'biped' : ''}`}><span>{biped ? '🦖' : '🦕'}</span><div><small>BODY STYLE</small><strong>{biped ? 'TWO-LEGGED' : 'FOUR-LEGGED'}</strong></div></div>
-          <StatsPanel config={dino} />
+          <StatsPanel config={dino} onExplain={() => setGuideOpen(true)} />
         </section>
         <section className="controls">
           <label className="name"><b>✏️ Name your dinosaur</b><input maxLength={20} value={dino.name} onChange={(event) => set('name', event.target.value)} placeholder="Chompy" /></label>
@@ -109,6 +111,7 @@ export default function App() {
       </div>
       <footer>Made with big ideas and tiny fossils 🦴</footer>
       {saved && <SaveDinoModal config={dino} onClose={() => setSaved(false)} />}
+      {guideOpen && <RacingGuide config={dino} onClose={() => setGuideOpen(false)} />}
     </main>
   )
 }

@@ -1,4 +1,29 @@
+import { isBiped, type DinosaurConfig } from '../game/dinosaurTypes'
+import { calculateStats } from '../game/calculateStats'
 import { BASE_SPEED, LAP_COUNT, type RaceDinosaurProfile, type Terrain, type TerrainResult } from './raceTypes'
+
+/**
+ * The racing traits the simulation reads out of a built dinosaur. Strength and
+ * stamina come from the same `calculateStats` the builder's panel shows, so the
+ * bars a child fills in are the numbers the race actually runs on.
+ *
+ * It lives here rather than with the course so the lab can work out how a build
+ * will race without pulling in any track geometry.
+ */
+export function toRaceProfile(config: DinosaurConfig): RaceDinosaurProfile {
+  const stats = calculateStats(config)
+  return {
+    head: config.head,
+    size: config.body,
+    legLength: config.hindLegs,
+    footType: config.feet,
+    tailType: config.tail,
+    stance: isBiped(config) ? 'Biped' : 'Quadruped',
+    hasWings: config.feature === 'Wings',
+    strength: stats.strength,
+    stamina: stats.stamina,
+  }
+}
 
 /**
  * How much of a build's raw advantage survives into its actual pace.
@@ -22,60 +47,106 @@ const PACE_CEILING = 1.3
 const clamp = (raw: number) => Math.max(PACE_FLOOR, Math.min(PACE_CEILING, 1 + (raw - 1) * COMPRESSION))
 
 /**
- * What each head family is good at.
+ * Every rule the race runs on, written down rather than coded up.
  *
- * The head is the choice a child cares about most and it used to do nothing at
- * all, so every family now owns a terrain. Parasaurolophus is the exception on
- * purpose: instead of a home straight it keeps a little of its pace everywhere,
- * which makes "steady" a real strategy rather than a missing bonus.
+ * The simulation walks this table and so does the guide in the lab, which is
+ * the point: a child reading what claws do on the rocks is reading the same
+ * line the race reads. Prose kept somewhere else would drift the first time a
+ * number moved, and these numbers have moved a lot.
+ *
+ * Order matters — the first entry that applies becomes the headline on the
+ * terrain card — so head bonuses lead each list.
  */
-const HEAD_HOME: Partial<Record<RaceDinosaurProfile['head'], { terrain: Terrain; note: string }>> = {
-  Raptor: { terrain: 'Forest', note: 'A raptor darts between the trees' },
-  'T-Rex': { terrain: 'Plains', note: 'A T-Rex thunders across open ground' },
-  Triceratops: { terrain: 'Mountains', note: 'A triceratops grips the rocky climb' },
-  Brachiosaurus: { terrain: 'Marsh', note: 'A brachiosaurus wades straight through' },
+export interface TerrainRule {
+  /** The builder control this is about, worded as the builder words it. */
+  trait: string
+  /** The choice on that control which triggers it. */
+  choice: string
+  /** Added to raw pace. Negative rules are the ones that cost you. */
+  amount: number
+  note: string
+  applies: (profile: RaceDinosaurProfile) => boolean
 }
 
-const HEAD_BONUS = .15
-const STEADY_BONUS = .06
+/** The head that owns each terrain, and the one that owns none of them. */
+const steady: TerrainRule = {
+  trait: 'Head type',
+  choice: 'Parasaurolophus',
+  amount: .06,
+  note: 'A parasaurolophus keeps the same pace everywhere',
+  applies: (p) => p.head === 'Parasaurolophus',
+}
+
+const homeHead = (head: RaceDinosaurProfile['head'], note: string): TerrainRule => ({
+  trait: 'Head type', choice: head, amount: .15, note, applies: (p) => p.head === head,
+})
+
+export const TERRAIN_RULES: Record<Terrain, TerrainRule[]> = {
+  Marsh: [
+    homeHead('Brachiosaurus', 'A brachiosaurus wades straight through'),
+    steady,
+    { trait: 'Feet', choice: 'Webbed Feet', amount: .28, note: 'Webbed feet paddle through water',
+      applies: (p) => p.footType === 'Webbed Feet' },
+    { trait: 'Feet', choice: 'Clawed Feet', amount: .08, note: 'Claws grip slippery mud',
+      applies: (p) => p.footType === 'Clawed Feet' },
+    { trait: 'Body size', choice: 'Big', amount: -.18, note: 'A big body sinks into mud',
+      applies: (p) => p.size === 'Big' },
+    { trait: 'Body style', choice: 'Four-legged', amount: .08, note: 'Four feet spread the weight',
+      applies: (p) => p.stance === 'Quadruped' },
+  ],
+  Mountains: [
+    homeHead('Triceratops', 'A triceratops grips the rocky climb'),
+    steady,
+    { trait: 'Tail', choice: 'Long or Giant Tail', amount: .18, note: 'Long tail improves balance',
+      applies: (p) => p.tailType === 'Long Tail' || p.tailType === 'Giant Tail' },
+    { trait: 'Feet', choice: 'Clawed Feet', amount: .16, note: 'Claws grip the rocks',
+      applies: (p) => p.footType === 'Clawed Feet' },
+    // Hauling yourself up a switchback is the one place raw power pays off.
+    { trait: 'Strength', choice: '4 or more', amount: .12, note: 'Strong legs power up the slope',
+      applies: (p) => p.strength >= 4 },
+    { trait: 'Back legs', choice: 'Long', amount: -.1, note: 'Long legs wobble on ledges',
+      applies: (p) => p.legLength === 'Long' },
+    { trait: 'Body size', choice: 'Big', amount: -.08, note: 'Large body slows climbing',
+      applies: (p) => p.size === 'Big' },
+  ],
+  Forest: [
+    homeHead('Raptor', 'A raptor darts between the trees'),
+    steady,
+    { trait: 'Body size', choice: 'Small', amount: .2, note: 'Small body slips between trees',
+      applies: (p) => p.size === 'Small' },
+    { trait: 'Body style', choice: 'Two-legged', amount: .08, note: 'Two legs pivot quickly',
+      applies: (p) => p.stance === 'Biped' },
+    { trait: 'Body size', choice: 'Big', amount: -.16, note: 'Big body bumps branches',
+      applies: (p) => p.size === 'Big' },
+    { trait: 'Tail', choice: 'Giant Tail', amount: -.1, note: 'Giant tail catches on roots',
+      applies: (p) => p.tailType === 'Giant Tail' },
+  ],
+  Plains: [
+    homeHead('T-Rex', 'A T-Rex thunders across open ground'),
+    steady,
+    { trait: 'Back legs', choice: 'Long', amount: .25, note: 'Long legs open up a sprint',
+      applies: (p) => p.legLength === 'Long' },
+    { trait: 'Body style', choice: 'Two-legged', amount: .1, note: 'Biped stride is fast in open space',
+      applies: (p) => p.stance === 'Biped' },
+    { trait: 'Extra feature', choice: 'Wings', amount: .07, note: 'Wings help catch the breeze',
+      applies: (p) => p.hasWings },
+    { trait: 'Body size', choice: 'Big', amount: -.08, note: 'Large body takes more effort to sprint',
+      applies: (p) => p.size === 'Big' },
+    { trait: 'Back legs', choice: 'Short', amount: -.15, note: 'Short legs lose ground on the straightaway',
+      applies: (p) => p.legLength === 'Short' },
+  ],
+}
 
 export function evaluateTerrain(profile: RaceDinosaurProfile, terrain: Terrain): TerrainResult {
   let pace = 1
   const strengths: string[] = []
   const challenges: string[] = []
-  const add = (amount: number, message: string) => { pace += amount; strengths.push(message) }
-  const subtract = (amount: number, message: string) => { pace -= amount; challenges.push(message) }
 
-  const home = HEAD_HOME[profile.head]
-  if (home && home.terrain === terrain) add(HEAD_BONUS, home.note)
-  if (profile.head === 'Parasaurolophus') add(STEADY_BONUS, 'A parasaurolophus keeps the same pace everywhere')
-
-  if (terrain === 'Marsh') {
-    if (profile.footType === 'Webbed Feet') add(.28, 'Webbed feet paddle through water')
-    else if (profile.footType === 'Clawed Feet') add(.08, 'Claws grip slippery mud')
-    if (profile.size === 'Big') subtract(.18, 'A big body sinks into mud')
-    if (profile.stance === 'Quadruped') add(.08, 'Four feet spread the weight')
-  }
-  if (terrain === 'Mountains') {
-    if (profile.tailType === 'Long Tail' || profile.tailType === 'Giant Tail') add(.18, 'Long tail improves balance')
-    if (profile.footType === 'Clawed Feet') add(.16, 'Claws grip the rocks')
-    // Hauling yourself up a switchback is the one place raw power pays off.
-    if (profile.strength >= 4) add(.12, 'Strong legs power up the slope')
-    if (profile.legLength === 'Long') subtract(.1, 'Long legs wobble on ledges')
-    if (profile.size === 'Big') subtract(.08, 'Large body slows climbing')
-  }
-  if (terrain === 'Forest') {
-    if (profile.size === 'Small') add(.2, 'Small body slips between trees')
-    if (profile.stance === 'Biped') add(.08, 'Two legs pivot quickly')
-    if (profile.size === 'Big') subtract(.16, 'Big body bumps branches')
-    if (profile.tailType === 'Giant Tail') subtract(.1, 'Giant tail catches on roots')
-  }
-  if (terrain === 'Plains') {
-    if (profile.legLength === 'Long') add(.25, 'Long legs open up a sprint')
-    if (profile.stance === 'Biped') add(.1, 'Biped stride is fast in open space')
-    if (profile.hasWings) add(.07, 'Wings help catch the breeze')
-    if (profile.size === 'Big') subtract(.08, 'Large body takes more effort to sprint')
-    if (profile.legLength === 'Short') subtract(.15, 'Short legs lose ground on the straightaway')
+  for (const rule of TERRAIN_RULES[terrain]) {
+    if (!rule.applies(profile)) continue
+    pace += rule.amount
+    if (rule.amount >= 0) strengths.push(rule.note)
+    else challenges.push(rule.note)
   }
 
   return {
