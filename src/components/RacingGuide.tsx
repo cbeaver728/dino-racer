@@ -1,5 +1,5 @@
 import type { DinosaurConfig } from '../game/dinosaurTypes'
-import { TERRAIN_RULES, evaluateTerrain, toRaceProfile } from '../race/raceSimulation'
+import { TERRAIN_RULES, paceIndex, paceWord, toRaceProfile } from '../race/raceSimulation'
 import { COURSE } from '../race/raceTypes'
 
 /**
@@ -24,11 +24,13 @@ export function RacingGuide({ config, onClose }: { config: DinosaurConfig; onClo
         <p className="guide-intro">
           Every part you pick changes how fast your dinosaur runs over each kind of ground.
           A tick means <strong>{config.name || 'your dinosaur'}</strong> already has it.
+          <br />The number on each patch is how it runs there next to an average dinosaur —
+          over 100% is quicker than most, under 100% is slower.
         </p>
 
         {COURSE.map((section) => {
-          const result = evaluateTerrain(profile, section.terrain)
-          const percent = Math.round(result.pace * 100)
+          const index = paceIndex(profile, section.terrain)
+          const percent = Math.round(index * 100)
           return (
             <section className="guide-terrain" key={section.terrain}>
               <header>
@@ -37,7 +39,10 @@ export function RacingGuide({ config, onClose }: { config: DinosaurConfig; onClo
                   <strong>{section.terrain}</strong>
                   <small>{section.description}</small>
                 </div>
-                <em className={percent >= 100 ? 'guide-pace fast' : 'guide-pace slow'}>{percent}%</em>
+                <em className={percent >= 100 ? 'guide-pace fast' : 'guide-pace slow'}>
+                  <b>{percent}%</b>
+                  <small>{paceWord(index)}</small>
+                </em>
               </header>
               <ul>
                 {TERRAIN_RULES[section.terrain].map((rule) => {

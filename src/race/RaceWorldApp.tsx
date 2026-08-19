@@ -7,7 +7,7 @@ import { SoundToggle } from '../components/SoundToggle'
 import { COURSE, DEMO_DINO, LAP_COUNT, type Terrain } from './raceTypes'
 import { COURSES, toRaceProfile } from './course'
 import type { ChaseTarget } from './Racers'
-import { estimateRaceTime, evaluateTerrain } from './raceSimulation'
+import { estimateRaceTime, evaluateTerrain, paceIndex } from './raceSimulation'
 import { usePlayerSteering, type SteerDirection } from './steering'
 import {
   MAX_RACERS,
@@ -311,6 +311,8 @@ export default function RaceWorldApp() {
     return first ? toRaceProfile(first.config) : DEMO_DINO
   }, [roster, selected])
   const result = useMemo(() => evaluateTerrain(reportProfile, selectedTerrain), [reportProfile, selectedTerrain])
+  // Against a typical dinosaur, so the number lands either side of 100.
+  const reportIndex = useMemo(() => paceIndex(reportProfile, selectedTerrain), [reportProfile, selectedTerrain])
   const estimatedTime = useMemo(() => estimateRaceTime(reportProfile, course), [reportProfile, course])
   const section = COURSE.find((item) => item.terrain === selectedTerrain)
 
@@ -456,9 +458,9 @@ export default function RaceWorldApp() {
       </button>)}</div>
     </aside>
     <section className="race-report">
-      <div className="report-top"><span>{section?.icon}</span><div><small>TERRAIN REPORT</small><h2>{selectedTerrain}</h2></div><strong className={result.pace >= 1 ? 'boost' : 'slow'}>{Math.round(result.pace * 100)}% PACE</strong></div>
-      <p>{section?.description}</p><div className="terrain-bar"><i style={{ width: `${Math.min(100, result.pace * 65)}%` }} /></div>
-      <div className="report-note"><span>{result.pace >= 1 ? '✨' : '⚠️'}</span><div><strong>{result.note}</strong><small>{result.strengths.length ? result.strengths.join(' • ') : result.challenges.join(' • ')}</small></div></div>
+      <div className="report-top"><span>{section?.icon}</span><div><small>TERRAIN REPORT</small><h2>{selectedTerrain}</h2></div><strong className={reportIndex >= 1 ? 'boost' : 'slow'}>{Math.round(reportIndex * 100)}% PACE</strong></div>
+      <p>{section?.description}</p><div className="terrain-bar"><i style={{ width: `${Math.max(6, Math.min(100, (reportIndex - .8) * 250))}%` }} /></div>
+      <div className="report-note"><span>{reportIndex >= 1 ? '✨' : '⚠️'}</span><div><strong>{result.note}</strong><small>{result.strengths.length ? result.strengths.join(' • ') : result.challenges.join(' • ')}</small></div></div>
       <div className="demo-chip"><span>ESTIMATE</span><b>{roster.find((entry) => entry.id === selected[0])?.config.name ?? 'Demo dino'}</b><em>{LAP_COUNT} laps: about {estimatedTime.toFixed(0)} seconds</em></div>
     </section></>}
 

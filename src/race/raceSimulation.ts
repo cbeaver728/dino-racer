@@ -1,6 +1,9 @@
-import { isBiped, type DinosaurConfig } from '../game/dinosaurTypes'
+import {
+  BODIES, DEFAULT_DINO, FEATURES, FEET, FRONT_LIMBS, HEADS, HIND_LEGS, TAILS,
+  isBiped, type DinosaurConfig,
+} from '../game/dinosaurTypes'
 import { calculateStats } from '../game/calculateStats'
-import { BASE_SPEED, LAP_COUNT, type RaceDinosaurProfile, type Terrain, type TerrainResult } from './raceTypes'
+import { BASE_SPEED, LAP_COUNT, TERRAIN_ORDER, type RaceDinosaurProfile, type Terrain, type TerrainResult } from './raceTypes'
 
 /**
  * The racing traits the simulation reads out of a built dinosaur. Strength and
@@ -156,6 +159,69 @@ export function evaluateTerrain(profile: RaceDinosaurProfile, terrain: Terrain):
     strengths,
     challenges,
   }
+}
+
+/**
+ * The pace a middling dinosaur gets on each terrain, measured by building every
+ * one of them and taking the middle.
+ *
+ * Raw pace is measured against a dinosaur that triggers no rule at all, which is
+ * a dinosaur nobody can build: the rules hand out far more bonuses than
+ * penalties, so almost every real build scores over 100% and the number reads as
+ * praise rather than information. Against a typical dinosaur instead, 100% means
+ * average, and being under it means something.
+ *
+ * Worked out once, on first use, and only for display — the race itself still
+ * runs on raw pace, so nothing here can move the balance.
+ */
+let typical: Record<Terrain, number> | null = null
+
+function typicalPace(): Record<Terrain, number> {
+  if (typical) return typical
+
+  const gathered = {} as Record<Terrain, number[]>
+  for (const terrain of TERRAIN_ORDER) gathered[terrain] = []
+
+  for (const head of HEADS) {
+    for (const body of BODIES) {
+      for (const hindLegs of HIND_LEGS) {
+        for (const feet of FEET) {
+          for (const tail of TAILS) {
+            for (const feature of FEATURES) {
+              for (const frontLimbs of FRONT_LIMBS) {
+                const profile = toRaceProfile({ ...DEFAULT_DINO, head, body, hindLegs, feet, tail, feature, frontLimbs })
+                for (const terrain of TERRAIN_ORDER) {
+                  gathered[terrain].push(evaluateTerrain(profile, terrain).pace)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const middle = {} as Record<Terrain, number>
+  for (const terrain of TERRAIN_ORDER) {
+    const sorted = gathered[terrain].sort((a, b) => a - b)
+    middle[terrain] = sorted[Math.floor(sorted.length / 2)]
+  }
+  typical = middle
+  return middle
+}
+
+/** This build's pace against a typical one: 1 is average, 1.1 is a tenth quicker. */
+export function paceIndex(profile: RaceDinosaurProfile, terrain: Terrain) {
+  return evaluateTerrain(profile, terrain).pace / typicalPace()[terrain]
+}
+
+/** The same thing in a word, for anyone not reading percentages. */
+export function paceWord(index: number) {
+  if (index >= 1.07) return 'Great here'
+  if (index >= 1.025) return 'Good here'
+  if (index > 0.975) return 'Steady here'
+  if (index > 0.93) return 'Slow here'
+  return 'Struggles here'
 }
 
 /**
