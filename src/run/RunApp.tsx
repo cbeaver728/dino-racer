@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadRoster } from '../game/storage'
+import { RIVALS } from '../game/rivals'
 import { playStar, playTimeUp, playTornado, unlock } from '../game/sound'
 import { SoundToggle } from '../components/SoundToggle'
 import { RunWorld } from './RunWorld'
-import { LANES, LANE_GLIDE, RUN_SECONDS } from './runEngine'
+import { LANES, LANE_GLIDE, RUN_SECONDS, SPIN_SECONDS, TORNADO_PENALTY } from './runEngine'
 import './run.css'
 
-type Phase = 'pick' | 'running' | 'crashed' | 'timeup'
+type Phase = 'pick' | 'running' | 'timeup'
 
 export default function RunApp() {
-  const [roster] = useState(loadRoster)
+  /*
+   * Whatever has been built, falling back to the rivals so the run is never a
+   * dead end. It used to refuse to start without a saved dinosaur, which made
+   * Star Dash a locked door to anyone opening it first.
+   */
+  const [roster] = useState(() => {
+    const saved = loadRoster()
+    return saved.length ? saved : RIVALS
+  })
   const [chosen, setChosen] = useState(0)
   const [phase, setPhase] = useState<Phase>('pick')
   const [score, setScore] = useState(0)
@@ -21,11 +30,17 @@ export default function RunApp() {
   // steering never costs a React render mid-run.
   const playerX = useRef(0)
   const targetLane = useRef(1)
+  /** Wall-clock moment the spin ends; steering is locked until then. */
+  const spinUntil = useRef(0)
+  /** Bumped on every hit so the penalty flash replays. */
+  const [bumps, setBumps] = useState(0)
 
   const config = roster[chosen]?.config
   const running = phase === 'running'
 
   const steer = useCallback((direction: -1 | 1) => {
+    // No steering out of a spin; that is what makes the hit cost something.
+    if (performance.now() < spinUntil.current) return
     setLane((current) => {
       const next = Math.min(LANES.length - 1, Math.max(0, current + direction))
       targetLane.current = next
@@ -39,6 +54,8 @@ export default function RunApp() {
     unlock()
     playerX.current = LANES[1]
     targetLane.current = 1
+    spinUntil.current = 0
+    setBumps(0)
     setLane(1)
     setScore(0)
     setRemaining(RUN_SECONDS)
@@ -92,17 +109,16 @@ export default function RunApp() {
   })
 
   const onStar = useCallback(() => { playStar(); setScore((value) => value + 1) }, [])
-  const onTornado = useCallback(() => { playTornado(); setPhase('crashed') }, [])
+  const onTornado = useCallback(() => {
+    // One spin at a time, so clipping two in a row is not a double punishment.
+    if (performance.now() < spinUntil.current) return
+    playTornado()
+    spinUntil.current = performance.now() + SPIN_SECONDS * 1000
+    setRemaining((value) => Math.max(0, value - TORNADO_PENALTY))
+    setBumps((count) => count + 1)
+  }, [])
 
-  if (!config) {
-    return <main className="run-app">
-      <div className="run-empty">
-        <h1>🌟 STAR DASH</h1>
-        <p>Build a dinosaur in the lab first, then come back and run!</p>
-        <a className="run-link" href="./">🧪 Open Dino Lab</a>
-      </div>
-    </main>
-  }
+  if (!config) return null
 
   return <main className="run-app">
     <div className="run-world">
@@ -113,6 +129,7 @@ export default function RunApp() {
         running={running}
         onStar={onStar}
         onTornado={onTornado}
+        spinUntil={spinUntil}
       />
     </div>
 
@@ -122,6 +139,8 @@ export default function RunApp() {
       <div className={`run-timer${remaining <= 10 && running ? ' low' : ''}`}><span>⏱</span><strong>{remaining}</strong></div>
       <SoundToggle />
     </header>
+
+    {bumps > 0 && <div key={bumps} className="run-penalty" role="status">🌪️ −{TORNADO_PENALTY}s</div>}
 
     {phase === 'pick' && <div className="run-card-backdrop">
       <div className="run-card">
@@ -144,10 +163,10 @@ export default function RunApp() {
       </div>
     </div>}
 
-    {(phase === 'crashed' || phase === 'timeup') && <div className="run-card-backdrop">
+    {phase === 'timeup' && <div className="run-card-backdrop">
       <div className="run-card">
-        <b className="run-card-emoji">{phase === 'crashed' ? '🌪️' : '🎉'}</b>
-        <h1>{phase === 'crashed' ? 'Spun out!' : 'Time is up!'}</h1>
+        <b className="run-card-emoji">🎉</b>
+        <h1>Time is up!</h1>
         <p className="run-final"><strong>{config.name}</strong> collected</p>
         <div className="run-final-score"><span>⭐</span><b>{score}</b></div>
         <button className="run-play" type="button" onClick={start}>↻ RUN AGAIN</button>

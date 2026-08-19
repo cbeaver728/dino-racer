@@ -200,7 +200,9 @@ function RunCamera({ playerX }: { playerX: RefObject<number> }) {
   return null
 }
 
-function Player({ config, playerX }: { config: DinosaurConfig; playerX: RefObject<number> }) {
+function Player({ config, playerX, spinUntil }: {
+  config: DinosaurConfig; playerX: RefObject<number>; spinUntil: RefObject<number>
+}) {
   const group = useRef<THREE.Group>(null)
   const gait = useRef(1)
   const lastX = useRef(0)
@@ -212,6 +214,9 @@ function Player({ config, playerX }: { config: DinosaurConfig; playerX: RefObjec
     const lean = THREE.MathUtils.clamp((x - lastX.current) * 5, -0.32, 0.32)
     lastX.current = x
     group.current.rotation.z = -lean
+    // Whipped round by a tornado, unwinding as the spin runs out.
+    const spinLeft = Math.max(0, spinUntil.current - performance.now()) / 1000
+    group.current.rotation.y = spinLeft * 16
   })
   return (
     <group ref={group} position={[0, 0, 0]}>
@@ -266,12 +271,13 @@ function RunLoop({ objects, spawner, playerX, running, elapsed, onStar, onTornad
   return null
 }
 
-export function RunWorld({ config, playerX, running, onStar, onTornado }: {
+export function RunWorld({ config, playerX, running, onStar, onTornado, spinUntil }: {
   config: DinosaurConfig
   playerX: RefObject<number>
   running: boolean
   onStar: () => void
   onTornado: () => void
+  spinUntil: RefObject<number>
 }) {
   const objects = useRef<RunObject[]>([])
   const spawner = useRef<SpawnState>(createSpawnState())
@@ -306,7 +312,7 @@ export function RunWorld({ config, playerX, running, onStar, onTornado }: {
 
       <MovingGround running={running} />
       <FinishLine elapsed={elapsed} />
-      <Player config={config} playerX={playerX} />
+      <Player config={config} playerX={playerX} spinUntil={spinUntil} />
 
       {objects.current.map((object) => <RunProp key={object.id} object={object} />)}
 

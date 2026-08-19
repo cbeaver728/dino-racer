@@ -76,6 +76,8 @@ export interface Hazard {
   x: number
   z: number
   radius: number
+  /** Where along the lap it lies, so racers only look for lava where it is. */
+  t: number
 }
 
 export interface CourseDefinition {
@@ -251,7 +253,13 @@ const drift = (seed: number) => {
  * however thick the lava gets there is always a clear line down the other side
  * — the road is meant to be threaded, not blocked.
  */
-function flowsAlong(points: THREE.Vector3[], volcano: { x: number; z: number }, field: LavaField, seed: number) {
+function flowsAlong(
+  points: THREE.Vector3[],
+  volcano: { x: number; z: number },
+  field: LavaField,
+  seed: number,
+  span: { from: number; to: number },
+) {
   const pools: Hazard[] = []
   let previous: THREE.Vector3 | null = null
   for (let index = 1; index < points.length - 1; index += field.spacing) {
@@ -279,7 +287,8 @@ function flowsAlong(points: THREE.Vector3[], volcano: { x: number; z: number }, 
     // Keep them spotty: a flow too close behind the last one makes a wall.
     if (previous && previous.distanceTo(spot) < field.gap) continue
     previous = spot
-    pools.push({ x: spot.x, z: spot.z, radius: field.maxRadius * (0.5 + closeness * 0.5) })
+    const along = span.from + (span.to - span.from) * (index / (points.length - 1))
+    pools.push({ x: spot.x, z: spot.z, radius: field.maxRadius * (0.5 + closeness * 0.5), t: along })
   }
   return pools
 }
@@ -432,7 +441,8 @@ export function buildCourse(def: CourseDefinition): Course {
         ? [leg.curves[0].getSpacedPoints(70), leg.curves[1].getSpacedPoints(70)]
         : [leg.samples]
       strands.forEach((strand, side) => {
-        lava.push(...flowsAlong(strand, def.volcano!, def.lava!, index * 137 + side * 61))
+        lava.push(...flowsAlong(strand, def.volcano!, def.lava!, index * 137 + side * 61,
+          { from: leg.tFrom, to: leg.tTo }))
       })
     })
   }
@@ -490,7 +500,21 @@ export function buildCourse(def: CourseDefinition): Course {
 
   // The stretch lava lives on, with room either side for the run in and out.
   // Everywhere else the racers can skip looking for it entirely.
-  const lavaSpan = lava.length ? { from: 0, to: 1 } : null
+  /*
+   * The stretch of lap that can hold lava, with room either side for the run in.
+   *
+   * This was left at the whole lap when the flows became a field, which quietly
+   * turned the gate into a no-op: every computer racer then probed for lava on
+   * every frame of every lap, on the one course where probing is expensive.
+   * Each flow now records its own lap fraction as it is placed, so the span is
+   * exact and costs nothing to work out.
+   */
+  const lavaSpan = lava.length
+    ? {
+      from: Math.max(0, Math.min(...lava.map((pool) => pool.t)) - .05),
+      to: Math.min(1, Math.max(...lava.map((pool) => pool.t)) + .04),
+    }
+    : null
 
   const clearanceAt = (x: number, z: number) => {
     let nearest = Number.POSITIVE_INFINITY
@@ -500,16 +524,24 @@ export function buildCourse(def: CourseDefinition): Course {
     return nearest
   }
 
-  // Measured rather than declared, so the course card always matches the track.
+  /*
+   * Measured off the lap as it is actually driven, so the course card matches
+   * the track. Walking the main curve instead described a line that, on a forked
+   * course, runs through the ground between the two ways round and knows nothing
+   * about the terrain either of them was declared to cross.
+   *
+   * Both ways round every fork are counted, so a card shows everything on offer.
+   */
   const counts = {} as Record<Terrain, number>
   for (const terrain of TERRAIN_ORDER) counts[terrain] = 0
   const STEPS = 240
-  for (let step = 0; step < STEPS; step++) {
-    const point = curve.getPointAt(step / STEPS)
-    counts[terrainAt(point.x, point.z)] += 1
+  const ways = splits.length ? [splits.map(() => 0), splits.map(() => 1)] : [undefined]
+  for (const route of ways) {
+    for (let step = 0; step < STEPS; step++) counts[terrainOn(step / STEPS, route)] += 1
   }
+  const sampled = STEPS * ways.length
   const mix = TERRAIN_ORDER
-    .map((terrain) => ({ terrain, share: Math.round((counts[terrain] / STEPS) * 100) }))
+    .map((terrain) => ({ terrain, share: Math.round((counts[terrain] / sampled) * 100) }))
     .filter((entry) => entry.share > 0)
     .sort((a, b) => b.share - a.share)
 

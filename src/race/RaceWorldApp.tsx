@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { loadRoster } from '../game/storage'
-import { fillWithRivals } from '../game/rivals'
+import { RIVALS, fillWithRivals } from '../game/rivals'
 import { playCountBeep, playFinalLap, playFinish, playGo, playTap, unlock } from '../game/sound'
 import { SoundToggle } from '../components/SoundToggle'
 import { COURSE, DEMO_DINO, LAP_COUNT, type Terrain } from './raceTypes'
@@ -64,7 +64,7 @@ export default function RaceWorldApp() {
   const [showInfo, setShowInfo] = useState(false)
   const [selectedTerrain, setSelectedTerrain] = useState<Terrain>('Marsh')
   const [courseIndex, setCourseIndex] = useState(0)
-  const [mode, setMode] = useState<Mode>(roster.length ? 'drive' : 'watch')
+  const [mode, setMode] = useState<Mode>('drive')
   const [useRivals, setUseRivals] = useState(true)
   const [driver, setDriver] = useState<string | null>(null)
   /** Full standings, or just your own row. Collapsed while driving so the
@@ -105,9 +105,16 @@ export default function RaceWorldApp() {
   const started = phase !== 'setup'
   const chasing = cameraMode !== 'free' && cameraMode !== 'leader'
 
-  // Derived rather than synced, so deselecting the dinosaur you were going to
-  // drive quietly falls back to another one instead of leaving a dead id.
-  const driverId = driver && selected.includes(driver) ? driver : selected[0] ?? null
+  /*
+   * Derived rather than synced, so deselecting the dinosaur you were going to
+   * drive quietly falls back to another one instead of leaving a dead id.
+   *
+   * With an empty stable the player takes the wheel of a rival. Driving is the
+   * best thing here and it used to be locked until you had built something,
+   * which meant the first race anyone saw was one they only watched.
+   */
+  const ownDriver = driver && selected.includes(driver) ? driver : selected[0] ?? null
+  const driverId = ownDriver ?? (useRivals ? RIVALS[0].id : null)
   const driving = mode === 'drive' && driverId !== null
   const steering = usePlayerSteering(racing && driving)
 
@@ -481,7 +488,7 @@ export default function RaceWorldApp() {
           type="button"
           className={mode === 'drive' ? 'chosen' : ''}
           aria-pressed={mode === 'drive'}
-          disabled={!roster.length}
+          disabled={!roster.length && !useRivals}
           onClick={() => { unlock(); playTap(); setMode('drive') }}
         ><span>🎮</span><strong>Drive</strong><small>Steer for stars, dodge tornadoes</small></button>
         <button
@@ -497,7 +504,12 @@ export default function RaceWorldApp() {
         <div><strong>PICK YOUR RACERS</strong><small>{roster.length ? `Up to ${MAX_RACERS} · ${selected.length} chosen` : 'Nothing in the stable yet'}</small></div>
       </div>
       {roster.length === 0
-        ? <p className="picker-empty">Build a dinosaur to race one of your own — or start now and watch the rivals go.<a href="./">🧪 Open Dino Lab</a></p>
+        ? <p className="picker-empty">
+          {mode === 'drive'
+            ? `Nothing built yet, so you will drive ${RIVALS[0].config.name} — build your own in the lab any time.`
+            : 'Nothing built yet, so the rivals will race on their own.'}
+          <a href="./">🧪 Open Dino Lab</a>
+        </p>
         : <ul className="picker-list">{roster.map((entry) => {
           const chosen = selected.includes(entry.id)
           const full = !chosen && selected.length >= MAX_RACERS

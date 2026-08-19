@@ -7,6 +7,17 @@
  * the stars and a tighter one on the tornadoes.
  */
 
+/**
+ * A tornado costs time rather than the run.
+ *
+ * Ending it outright meant most goes lasted about ten seconds of a sixty second
+ * timer — one mistake and the game was over, which is a hard way to learn a game
+ * at four. Losing a few seconds and a moment of steering still stings, and the
+ * run stays a score chase to the finish line.
+ */
+export const TORNADO_PENALTY = 3
+export const SPIN_SECONDS = 0.9
+
 export const LANES = [-2.15, 0, 2.15]
 export const RUN_SECONDS = 60
 
