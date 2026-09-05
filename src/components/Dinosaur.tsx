@@ -6,7 +6,11 @@ import { buildPalette, type DinoPalette } from '../game/palette'
 import { createDinoSkinMaterial, type DinoSkinOptions } from '../game/dinoSkin'
 import {
   bodySliceAt,
+  ankleHeight,
+  createLegGeometry,
   createBodyGeometry,
+  createFrillGeometry,
+  createPlateGeometry,
   createSweptGeometry,
   createTubeGeometry,
   profileSliceAt,
@@ -22,21 +26,15 @@ const BODY_SIZE = {
   Big: [1.9, 1.2, 2.3],
 } as const
 
-/*
- * Stubby, the way a drawn dinosaur's legs are: the body should look like it is
- * sitting on its legs rather than standing on stilts. The three choices still
- * span nearly three to one, so picking legs changes the animal as much as it
- * ever did — the whole range has just come down.
- */
-const LEG_HEIGHT = { Short: 0.4, Normal: 0.7, Long: 1.15 } as const
+/** The three reaches preserve the builder's short/normal/long silhouettes. */
+const LEG_HEIGHT = { Short: 0.55, Normal: 0.95, Long: 1.42 } as const
 const FRONT_HEIGHT = {
-  'Short Front Legs': 0.4,
-  'Normal Front Legs': 0.7,
-  'Long Front Legs': 1.15,
+  'Short Front Legs': 0.55,
+  'Normal Front Legs': 0.95,
+  'Long Front Legs': 1.42,
 } as const
 
-/** Big eyes carry most of the charm, so they are drawn well over life size. */
-const EYE_SCALE = 1.4
+const EYE_SCALE = 0.66
 
 /**
  * The tail's taper, shared by the geometry and by anything mounted on it.
@@ -50,12 +48,13 @@ const EYE_SCALE = 1.4
 const TAIL_FALLOFF = 1.18
 const TAIL_TIP_RADIUS = 0.04
 
-const Skin = ({ color }: { color: string }) => (
-  <meshStandardMaterial color={color} roughness={0.48} metalness={0} envMapIntensity={0.55} />
-)
+function Skin({ color }: { color: string }) {
+  const material = useSkinMaterial({ base: color, belly: color, pattern: color, skin: 'Plain' }, [0, 0, 0])
+  return <primitive object={material} attach="material" />
+}
 
 const Bone = ({ color }: { color: string }) => (
-  <meshStandardMaterial color={color} roughness={0.28} metalness={0} envMapIntensity={0.8} />
+  <meshStandardMaterial color={color} roughness={0.56} metalness={0} envMapIntensity={0.4} />
 )
 
 function useDisposable<T extends { dispose(): void }>(factory: () => T, key: string) {
@@ -71,7 +70,7 @@ function useSkinMaterial(options: DinoSkinOptions, offset: Vec3) {
   useEffect(() => () => material.dispose(), [material])
   useEffect(() => {
     material.applySkin(options)
-  }, [material, options.base, options.belly, options.pattern, options.skin])
+  }, [material, options.base, options.belly, options.pattern, options.skin, options.scale])
   useEffect(() => {
     material.setPatternOffset({ x: offset[0], y: offset[1], z: offset[2] })
   }, [material, offset[0], offset[1], offset[2]])
@@ -86,28 +85,38 @@ function Eye({ side, shape, palette }: {
   const { x, y, depth } = shape.eye
   const size = shape.eye.size * EYE_SCALE
   return (
-    <group position={[x, y, side * depth]}>
-      <mesh position={[-0.02, size * 0.62, side * 0.03]} rotation={[0, 0, 0.22]} scale={[1.35, 0.42, 1.05]}>
+    <group position={[x, y, side * (depth - size * 0.18)]}>
+      <mesh scale={[1.26, 1.04, 0.5]}>
+        <sphereGeometry args={[size, 24, 16]} />
+        <Skin color={palette.shade} />
+      </mesh>
+      <mesh position={[-0.015, size * 0.68, 0]} rotation={[0, 0, -0.12]} scale={[1.5, 0.36, 0.64]}>
         <sphereGeometry args={[size, 20, 14]} />
         <Skin color={palette.shade} />
       </mesh>
-      <mesh scale={[1, 1.05, 0.72]}>
+      <mesh position={[0, 0, side * size * 0.24]} scale={[1, 0.84, 0.44]}>
         <sphereGeometry args={[size, 26, 18]} />
         <meshStandardMaterial color={palette.sclera} roughness={0.22} />
       </mesh>
-      <mesh position={[size * 0.42, 0.01, side * 0.1]}>
-        <sphereGeometry args={[size * 0.46, 20, 14]} />
-        <meshStandardMaterial color={palette.pupil} roughness={0.1} />
+      <mesh position={[size * 0.1, 0, side * size * 0.57]} scale={[1, 1, 0.3]}>
+        <sphereGeometry args={[size * 0.65, 24, 18]} />
+        <meshStandardMaterial color={palette.iris} roughness={0.28} />
       </mesh>
-      <mesh position={[size * 0.62, size * 0.36, side * 0.14]}>
-        <sphereGeometry args={[size * 0.19, 12, 10]} />
-        <meshBasicMaterial color="#ffffff" />
+      <mesh position={[size * 0.15, 0, side * size * 0.75]} scale={[0.56, 1, 0.25]}>
+        <sphereGeometry args={[size * 0.45, 20, 16]} />
+        <meshStandardMaterial color={palette.pupil} roughness={0.12} />
+      </mesh>
+      <mesh position={[size * 0.22, size * 0.24, side * size * 0.83]}>
+        <sphereGeometry args={[size * 0.1, 10, 8]} />
+        <meshBasicMaterial color="#fff6da" />
       </mesh>
     </group>
   )
 }
 
-function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; scale: number }) {
+function Head({ type, palette, scale, skinOptions, offset }: {
+  type: HeadType; palette: DinoPalette; scale: number; skinOptions: DinoSkinOptions; offset: Vec3
+}) {
   const shape = headShape(type)
   const skull = useDisposable(
     () => createSweptGeometry(shape.skull, shape.dims, 40, 34),
@@ -119,13 +128,25 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
   )
 
   const teeth = shape.toothRow
+  const nostrilSlice = profileSliceAt(shape.skull, shape.dims, shape.nostril.x / shape.dims.halfLength)
+  const nostrilY = THREE.MathUtils.clamp((shape.nostril.y - nostrilSlice.centerY) / nostrilSlice.radiusY, -0.95, 0.95)
+  const nostrilZ = Math.sqrt(1 - nostrilY * nostrilY) * nostrilSlice.radiusZ - 0.004
+  const frill = useDisposable(() => type === 'Triceratops' ? createFrillGeometry() : new THREE.BufferGeometry(), `frill-${type}`)
+  const skullMaterial = useSkinMaterial({ ...skinOptions, scale }, offset)
+  const jawMaterial = useSkinMaterial({ ...skinOptions, base: palette.belly, scale }, offset)
+  const crest = useDisposable(() => type === 'Parasaurolophus' ? createTubeGeometry({
+    from: [-0.18, 0.24, 0], control: [-0.68, 0.95, 0], to: [-1.13, 0.57, 0],
+    startRadius: 0.18, endRadius: 0.055, flatten: 0.7, segments: 32,
+  }) : new THREE.BufferGeometry(), `crest-${type}`)
   return (
     <group scale={scale}>
-      <mesh geometry={skull}>
+      <mesh geometry={skull} material={skullMaterial} />
+      <mesh geometry={jaw} position={[0.02, shape.jawDrop, 0]} material={jawMaterial} />
+      {/* Cheek muscles bridge the jaw hinge into the rear of the skull. */}
+      <mesh position={[-shape.dims.halfLength * 0.5, shape.jawDrop * 0.45, 0]}
+        scale={[shape.dims.halfLength * 0.43, shape.dims.halfHeight * 0.74, shape.dims.halfWidth * 0.86]}>
+        <sphereGeometry args={[1, 28, 20]} />
         <Skin color={palette.base} />
-      </mesh>
-      <mesh geometry={jaw} position={[0.02, shape.jawDrop, 0]}>
-        <Skin color={palette.belly} />
       </mesh>
 
       {teeth && [-1, 1].map((side) => (
@@ -133,7 +154,8 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
           // Hang from the skull's lower edge along the mouth line, following it
           // as the snout narrows. A fixed spread left the front teeth outside
           // the snout on the T-Rex.
-          const x = teeth.from + index * teeth.size * 1.7
+          const along = index / Math.max(1, teeth.count - 1)
+          const x = THREE.MathUtils.lerp(teeth.from, shape.dims.halfLength * 0.84, along)
           const slice = profileSliceAt(shape.skull, shape.dims, x / shape.dims.halfLength)
           return (
             <mesh
@@ -145,7 +167,7 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
               ]}
               rotation={[0, 0, Math.PI]}
             >
-              <coneGeometry args={[teeth.size * 0.4, teeth.size * 1.5, 10]} />
+              <coneGeometry args={[teeth.size * 0.4, teeth.size * (1.5 - along * 0.3), 10]} />
               <Bone color={palette.bone} />
             </mesh>
           )
@@ -155,24 +177,31 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
       {[-1, 1].map((side) => (
         <mesh
           key={side}
-          position={[shape.nostril.x, shape.nostril.y, side * shape.nostril.spread]}
-          scale={[0.6, 1, 1]}
+          position={[shape.nostril.x, shape.nostril.y, side * nostrilZ]}
+          scale={[1, 0.48, 0.42]}
         >
-          <sphereGeometry args={[0.05, 14, 10]} />
+          <sphereGeometry args={[0.037, 14, 10]} />
           <meshStandardMaterial color={palette.pupil} roughness={0.5} />
         </mesh>
       ))}
 
       {type === 'Triceratops' && (
         <>
-          <mesh position={[-shape.dims.halfLength * 0.62, 0.16, 0]} scale={[0.16, 1.15, 1.3]}>
-            <sphereGeometry args={[0.6, 30, 22]} />
+          <mesh geometry={frill} position={[-shape.dims.halfLength * 0.62, 0.16, 0]}>
             <Skin color={palette.shade} />
           </mesh>
-          <mesh position={[-shape.dims.halfLength * 0.54, 0.16, 0]} scale={[0.12, 1.0, 1.14]}>
-            <sphereGeometry args={[0.6, 28, 20]} />
+          <mesh geometry={frill} position={[-shape.dims.halfLength * 0.57, 0.16, 0]} scale={[1, 0.88, 0.88]}>
             <Skin color={palette.pattern} />
           </mesh>
+          {Array.from({ length: 9 }, (_, i) => {
+            const angle = (i / 8) * Math.PI
+            return <mesh key={`rim-${i}`}
+              position={[-shape.dims.halfLength * 0.66, 0.16 + Math.sin(angle) * 0.68, Math.cos(angle) * 0.76]}
+              rotation={[Math.PI / 2 - angle, 0, 0]}>
+              <coneGeometry args={[0.04, 0.13, 12]} />
+              <Bone color={palette.bone} />
+            </mesh>
+          })}
           {[-0.3, 0.3].map((z) => (
             <mesh key={z} position={[0.04, 0.42, z]} rotation={[0, 0, -0.3]}>
               <coneGeometry args={[0.085, 0.5, 20]} />
@@ -187,16 +216,7 @@ function Head({ type, palette, scale }: { type: HeadType; palette: DinoPalette; 
       )}
 
       {type === 'Parasaurolophus' && (
-        <>
-          <mesh position={[-0.5, 0.42, 0]} rotation={[0, 0, -0.95]} scale={[0.34, 1, 0.4]}>
-            <coneGeometry args={[0.4, 1.3, 28]} />
-            <Skin color={palette.pattern} />
-          </mesh>
-          <mesh position={[-0.66, 0.66, 0]} rotation={[0, 0, -0.95]} scale={[0.2, 0.6, 0.24]}>
-            <coneGeometry args={[0.4, 1.3, 24]} />
-            <Skin color={palette.patternSoft} />
-          </mesh>
-        </>
+        <mesh geometry={crest}><Skin color={palette.pattern} /></mesh>
       )}
 
       {type === 'Brachiosaurus' && (
@@ -219,14 +239,20 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
           duck's foot reads. A full-size pad simply swallowed the web. */}
       <mesh
         position={[type === 'Webbed Feet' ? 0.08 : 0.13, 0.1, 0]}
-        scale={type === 'Webbed Feet' ? [0.5, 0.22, 0.42] : [0.65, 0.28, 0.6]}
+        scale={type === 'Webbed Feet' ? [0.5, 0.22, 0.42] : type === 'Clawed Feet' ? [0.5, 0.23, 0.47] : [0.65, 0.28, 0.6]}
       >
         <sphereGeometry args={[0.55, 32, 22]} />
         <Skin color={type === 'Round Feet' ? palette.belly : palette.shade} />
       </mesh>
+      {type === 'Clawed Feet' && [-0.17, 0, 0.17].map((z) => (
+        <mesh key={`toe-${z}`} position={[0.3, 0.075, z]} rotation={[0, -z * 0.5, 0]} scale={[0.28, 0.078, 0.078]}>
+          <sphereGeometry args={[1, 22, 14]} />
+          <Skin color={palette.base} />
+        </mesh>
+      ))}
       {type === 'Clawed Feet' && [-0.2, 0, 0.2].map((z) => (
-        <mesh key={z} position={[0.52, 0.08, z]} rotation={[0, 0, -Math.PI / 2]}>
-          <coneGeometry args={[0.075, 0.36, 18]} />
+        <mesh key={z} position={[0.57, 0.062, z]} rotation={[0, -z * 0.5, -1.72]}>
+          <coneGeometry args={[0.052, 0.24, 18]} />
           <Bone color={palette.bone} />
         </mesh>
       ))}
@@ -256,33 +282,6 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
   )
 }
 
-/** Where the limb stops and the foot takes over. */
-const ankleHeight = (height: number) => height * 0.14
-
-/**
- * A whole limb as one tapered tube from hip socket to ankle.
- *
- * It used to be a sphere for the thigh stacked on a cone for the shin: two hard
- * silhouette breaks where the shapes crossed, and a flat cylinder end sitting in
- * the foot. Sweeping one curve through the leg gives a continuous outline, and
- * the slight forward lean of the control point puts a knee in it.
- */
-function createLegGeometry(height: number) {
-  const chunk = Math.min(height, 1.2)
-  return createTubeGeometry({
-    from: [0, height, 0],
-    control: [height * 0.13, height * 0.46, 0],
-    to: [0, ankleHeight(height), 0],
-    startRadius: 0.22 + chunk * 0.08,
-    endRadius: 0.1 + chunk * 0.03,
-    falloff: 0.78,
-    // Legs are a little narrower across than front-to-back, like the tail.
-    flatten: 0.88,
-    segments: 26,
-    radial: 28,
-  })
-}
-
 /**
  * The outer group sits at the hip so the leg can swing about it; everything
  * inside is offset back down to the ground. Rotating a group rooted at the foot
@@ -299,17 +298,25 @@ function GroundLeg({ x, z, height, palette, foot, geometry, material, swing }: {
   swing?: RefObject<THREE.Group | null>
 }) {
   const ankle = ankleHeight(height)
+  const toes = useRef<THREE.Group>(null)
+  useFrame(() => {
+    // Counter-rotate the ankle during the stride so toes reach forward and
+    // plant, instead of moving as one rigid piece with the hip.
+    if (toes.current) toes.current.rotation.z = -(swing?.current?.rotation.z ?? 0) * 0.72
+  })
   return (
     <group position={[x, height, z]} ref={swing}>
       <group position={[0, -height, 0]}>
         <mesh geometry={geometry} material={material} />
         {/* Knuckle at the ankle, so the taper meets the foot in a joint rather
             than an edge. */}
-        <mesh position={[0, ankle, 0]} scale={[1, 0.84, 0.94]}>
+        <mesh position={[-height * 0.08, ankle, 0]} scale={[1, 0.84, 0.94]}>
           <sphereGeometry args={[0.15 + Math.min(height, 1.2) * 0.02, 24, 18]} />
           <Skin color={palette.shade} />
         </mesh>
-        <Foot type={foot} palette={palette} />
+        <group ref={toes} position={[-height * 0.08, ankle, 0]}>
+          <group position={[0, -ankle, 0]}><Foot type={foot} palette={palette} /></group>
+        </group>
       </group>
     </group>
   )
@@ -331,7 +338,7 @@ function Arm({ side, dims, long, palette }: {
       rotation={[-side * 0.42, 0, long ? -0.5 : -0.85]}
     >
       <mesh position={[0, -upper * 0.5, 0]}>
-        <cylinderGeometry args={[0.14, 0.11, upper, 20]} />
+        <capsuleGeometry args={[0.115, Math.max(0.05, upper - 0.23), 6, 20]} />
         <Skin color={palette.base} />
       </mesh>
       <mesh position={[0, -upper, 0]}>
@@ -340,7 +347,7 @@ function Arm({ side, dims, long, palette }: {
       </mesh>
       <group position={[0, -upper, 0]} rotation={[0, 0, 0.75]}>
         <mesh position={[0, -fore * 0.5, 0]}>
-          <cylinderGeometry args={[0.1, 0.075, fore, 18]} />
+          <capsuleGeometry args={[0.082, Math.max(0.05, fore - 0.164), 6, 18]} />
           <Skin color={palette.base} />
         </mesh>
         <mesh position={[0, -fore, 0]} scale={[0.9, 0.7, 0.8]}>
@@ -361,6 +368,7 @@ function Arm({ side, dims, long, palette }: {
 function BackFeature({ config, palette, dims }: {
   config: DinosaurConfig; palette: DinoPalette; dims: BodyDims
 }) {
+  const plateGeometry = useDisposable(() => config.feature === 'Plates' ? createPlateGeometry() : new THREE.BufferGeometry(), `dorsal-${config.feature}`)
   if (config.feature === 'None' || config.feature === 'Horns') return null
 
   if (config.feature === 'Wings') {
@@ -399,14 +407,11 @@ function BackFeature({ config, palette, dims }: {
         return (
           <mesh
             key={u}
-            position={[slice.x, slice.centerY + slice.radiusY + height * 0.3, 0]}
-            // Plates are a rounded, flattened leaf rather than a three-sided
-            // cone. The cone only had three faces, so every plate showed two
-            // hard edges and a flat face — the crudest shape on the dinosaur.
-            scale={plates ? [0.62, 0.66, 0.15] : [1, 1, 1]}
+            position={[slice.x, slice.centerY + slice.radiusY + (plates ? -0.05 : height * 0.3), 0]}
+            scale={plates ? [0.86, index === 1 || index === 2 ? 1 : 0.8, 1] : [1, 1, 1]}
           >
             {plates
-              ? <sphereGeometry args={[height, 26, 18]} />
+              ? <primitive object={plateGeometry} attach="geometry" />
               : <coneGeometry args={[0.17, height, 22]} />}
             <Skin color={plates && index % 2 === 1 ? palette.patternSoft : palette.pattern} />
           </mesh>
@@ -432,38 +437,28 @@ export function Dinosaur({ config, gait }: {
   const frontLeft = useRef<THREE.Group>(null)
   const frontRight = useRef<THREE.Group>(null)
   /** Running phases, advanced per frame so a speed change never jumps them. */
-  const gaitPhase = useRef({ stride: 0, tail: 0, neck: 0 })
+  const gaitPhase = useRef({ stride: 0, tail: 0, neck: 0, run: 0 })
 
   const palette = useMemo(
     () => buildPalette(config.color, config.patternColor),
     [config.color, config.patternColor],
   )
   const bodySize = BODY_SIZE[config.body]
-  /*
-   * Short, and distinctly wider than it is deep.
-   *
-   * A drawn dinosaur is a round body with things attached, not a long barrel.
-   * The width mattering more than the height is the specific thing that makes
-   * the view from behind a broad flat shield instead of the end of a tube: a
-   * cross-section taller than it is wide can only ever read as a ball.
-   */
+  // An elongated ribcage and narrower flanks give the limbs room to articulate.
   const dims: BodyDims = useMemo(() => ({
-    halfLength: bodySize[0] * 0.66,
-    halfHeight: bodySize[1] * 0.62,
-    halfWidth: bodySize[1] * 0.8,
+    halfLength: bodySize[0] * 0.91,
+    halfHeight: bodySize[1] * 0.72,
+    halfWidth: bodySize[1] * 0.59,
   }), [bodySize])
 
   const hindHeight = LEG_HEIGHT[config.hindLegs]
   const biped = isBiped(config)
   const frontHeight = biped ? hindHeight : FRONT_HEIGHT[config.frontLimbs as keyof typeof FRONT_HEIGHT]
-  // Shorter tails to match the shorter body; the three choices keep their spread.
-  const tailLength = config.tail === 'Stubby Tail' ? 1.0 : config.tail === 'Giant Tail' ? 2.4 : 1.7
+  const tailLength = config.tail === 'Stubby Tail' ? 1.15 : config.tail === 'Giant Tail' ? 2.9 : 2.15
 
   const shape = headShape(config.head)
   const longNeck = config.head === 'Brachiosaurus'
-  // Oversized, but not so far that a triceratops frill or a hadrosaur crest —
-  // both of which scale with it — turns the animal into a mushroom.
-  const headScale = 1.4 * bodySize[1]
+  const headScale = (longNeck ? 0.9 : config.head === 'T-Rex' ? 1.22 : 1.08) * bodySize[1]
   const skullHalf = shape.dims.halfLength * headScale
   // Hind legs carry a biped under its centre of mass, further forward than the
   // hips of a four-legged build.
@@ -519,7 +514,7 @@ export function Dinosaur({ config, gait }: {
   const skinOptions: DinoSkinOptions = {
     base: palette.base,
     belly: palette.belly,
-    pattern: config.patternColor,
+    pattern: palette.pattern,
     skin: config.skin,
   }
 
@@ -556,15 +551,8 @@ export function Dinosaur({ config, gait }: {
   }), `neck-${config.head}-${dims.halfLength}-${dims.halfHeight}-${headScale}`)
   const neckMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
 
-  /*
-   * A small tail leaving a big rear, not a second body.
-   *
-   * The root used to be taken straight off the torso profile, so now that the
-   * rear is broad it would have come away nearly as thick as the animal. In the
-   * drawings the tail is a modest cone low on a wide backside, so it is capped
-   * against the body's depth rather than following its width.
-   */
-  const tailStartRadius = Math.min(tailBase.radiusY * 0.62, dims.halfHeight * 0.44)
+  // The tail carries muscle out of the hips before thinning to its tip.
+  const tailStartRadius = Math.min(tailBase.radiusY * 0.9, dims.halfHeight * 0.64)
   /** The tail's half-thickness at t along its length, for mounting spikes. */
   const tailRadiusAt = (t: number) =>
     tailStartRadius + (TAIL_TIP_RADIUS - tailStartRadius) * Math.pow(t, TAIL_FALLOFF)
@@ -600,7 +588,10 @@ export function Dinosaur({ config, gait }: {
   useFrame(({ clock }, rawDelta) => {
     const time = clock.elapsedTime
     const delta = Math.min(rawDelta, 0.05)
-    const run = Math.min(1, Math.max(0, gait?.current ?? 0))
+    const targetRun = Math.min(1.35, Math.max(0, gait?.current ?? 0))
+    const phase = gaitPhase.current
+    phase.run = THREE.MathUtils.damp(phase.run, targetRun, 7, delta)
+    const run = phase.run
 
     /*
      * Gait phases advance by the frame's own step rather than being recomputed
@@ -612,7 +603,6 @@ export function Dinosaur({ config, gait }: {
      * frame, so the legs whipped round instead of swinging. Accumulating keeps
      * the stride continuous no matter how the speed moves.
      */
-    const phase = gaitPhase.current
     phase.stride += delta * (5 + run * 7)
     phase.tail += delta * (1.8 + run * 4)
     phase.neck += delta * (1.6 + run * 3)
@@ -620,36 +610,26 @@ export function Dinosaur({ config, gait }: {
     // Legs swing about the hips on a diagonal gait; the pair on one diagonal
     // reaches forward while the other drives back.
     const stride = phase.stride
-    const swing = run * 0.62
-    const bounce = run * 0.09
+    const swing = run * 0.48
+    const bounce = run * 0.065
     if (hindLeft.current) hindLeft.current.rotation.z = Math.sin(stride) * swing
     if (hindRight.current) hindRight.current.rotation.z = Math.sin(stride + Math.PI) * swing
     if (frontLeft.current) frontLeft.current.rotation.z = Math.sin(stride + Math.PI) * swing
     if (frontRight.current) frontRight.current.rotation.z = Math.sin(stride) * swing
 
     if (root.current) {
-      root.current.position.y = 0.04 + Math.sin(time * 2) * 0.035
-        + Math.abs(Math.sin(stride)) * bounce
-      root.current.rotation.z = Math.sin(time * 1.4) * 0.012 - run * 0.05
+      root.current.position.y = 0.055 + Math.sin(time * 1.7) * 0.008
+        + (1 - Math.cos(stride * 2)) * 0.5 * bounce
+      root.current.rotation.z = Math.sin(time * 1.4) * 0.005 - run * 0.025
     }
-    if (tail.current) tail.current.rotation.y = Math.sin(phase.tail) * (0.09 + run * 0.12)
+    if (tail.current) tail.current.rotation.y = Math.sin(phase.tail) * (0.055 + run * 0.085)
     if (neck.current) {
-      neck.current.rotation.z = Math.sin(phase.neck + 0.6) * (0.035 + run * 0.03)
-      neck.current.rotation.y = Math.sin(time * 0.9) * 0.05 * (1 - run)
+      neck.current.rotation.z = Math.sin(phase.neck + 0.6) * (0.018 + run * 0.018)
+      neck.current.rotation.y = Math.sin(time * 0.9) * 0.03 * Math.max(0, 1 - run)
     }
   })
 
-  /*
-   * Legs tucked under the body rather than hung off its flanks, and no haunch
-   * over them at all.
-   *
-   * Those two things were what made the back view bulge. A drawn dinosaur puts
-   * its legs close together underneath a wide body, so the widest thing you see
-   * from behind is the body itself and the legs read as two small posts under
-   * it. With the torso this broad the hip joint is covered by the body anyway,
-   * which is what the haunch was there to do.
-   */
-  const legZ = hip.radiusZ * 0.56
+  const legZ = hip.radiusZ * 0.68
 
   return (
     <group ref={root} position={[0, 0.04, 0]}>
@@ -697,7 +677,7 @@ export function Dinosaur({ config, gait }: {
         <group ref={neck}>
           <mesh geometry={neckGeometry} material={neckMaterial} />
           <group position={headPos} rotation={[0, 0, -0.1]}>
-            <Head type={config.head} palette={palette} scale={headScale} />
+            <Head type={config.head} palette={palette} scale={headScale} skinOptions={skinOptions} offset={headPos} />
             {config.feature === 'Horns' && config.head !== 'Triceratops' && (() => {
               // Anchor on the skull's own surface at its horn station. Fixed
               // coordinates buried these, or crossed the Parasaurolophus crest.
