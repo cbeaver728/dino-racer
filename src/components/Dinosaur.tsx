@@ -6,6 +6,8 @@ import { buildPalette, type DinoPalette } from '../game/palette'
 import { createDinoSkinMaterial, type DinoSkinOptions } from '../game/dinoSkin'
 import {
   bodySliceAt,
+  ankleHeight,
+  createLegGeometry,
   createBodyGeometry,
   createFrillGeometry,
   createPlateGeometry,
@@ -278,33 +280,6 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
       )}
     </group>
   )
-}
-
-/** Where the limb stops and the foot takes over. */
-const ankleHeight = (height: number) => height * 0.14
-
-/**
- * A whole limb as one tapered tube from hip socket to ankle.
- *
- * It used to be a sphere for the thigh stacked on a cone for the shin: two hard
- * silhouette breaks where the shapes crossed, and a flat cylinder end sitting in
- * the foot. Sweeping one curve through the leg gives a continuous outline, and
- * the slight forward lean of the control point puts a knee in it.
- */
-function createLegGeometry(height: number) {
-  const chunk = Math.min(height, 1.2)
-  return createTubeGeometry({
-    from: [0, height, 0],
-    control: [height * 0.48, height * 0.5, 0],
-    to: [-height * 0.08, ankleHeight(height), 0],
-    startRadius: 0.25 + chunk * 0.11,
-    endRadius: 0.1 + chunk * 0.03,
-    falloff: 0.78,
-    // Legs are a little narrower across than front-to-back, like the tail.
-    flatten: 0.88,
-    segments: 26,
-    radial: 28,
-  })
 }
 
 /**

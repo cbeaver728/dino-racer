@@ -192,6 +192,8 @@ export interface TubeOptions {
   flatten?: number
   segments?: number
   radial?: number
+  /** Close an exposed attachment, such as the hip of an animated leg. */
+  capStart?: boolean
 }
 
 /**
@@ -199,7 +201,7 @@ export interface TubeOptions {
  * overlapping spheres breaks into visible beads once the taper goes thin.
  */
 export function createTubeGeometry({
-  from, control, to, startRadius, endRadius, falloff = 1, flatten = 1, segments = 30, radial = 30,
+  from, control, to, startRadius, endRadius, falloff = 1, flatten = 1, segments = 30, radial = 30, capStart = false,
 }: TubeOptions) {
   const a = new THREE.Vector3(...from)
   const c = new THREE.Vector3(...control)
@@ -257,10 +259,20 @@ export function createTubeGeometry({
   }
 
   const tip = at(1)
+  // The hip ring can extend beyond the torso during
+  // a stride, exposing the open root from the rear even when the sides are
+  // correctly wound. Share its rim vertices so the join shades smoothly.
+  let rootIndex = -1
+  if (capStart) {
+    positions.push(a.x, a.y, a.z)
+    rootIndex = positions.length / 3 - 1
+  }
   positions.push(tip.x, tip.y, tip.z)
   const tipIndex = positions.length / 3 - 1
   for (let j = 0; j < radial; j++) {
-    indices.push(segments * radial + j, segments * radial + ((j + 1) % radial), tipIndex)
+    const next = (j + 1) % radial
+    if (capStart) indices.push(rootIndex, next, j)
+    indices.push(segments * radial + j, segments * radial + next, tipIndex)
   }
 
   const geometry = new THREE.BufferGeometry()
@@ -268,4 +280,27 @@ export function createTubeGeometry({
   geometry.setIndex(indices)
   geometry.computeVertexNormals()
   return geometry
+}
+
+/** Where the limb stops and the foot takes over. */
+export const ankleHeight = (height: number) => height * 0.14
+
+/** A continuous solid limb with a broad hip and a narrower ankle. */
+export function createLegGeometry(height: number) {
+  const chunk = Math.min(height, 1.2)
+  // Short legs retain their muscle mass, so their knee needs a gentler curve:
+  // a bend tighter than the tube's radius turns its inner faces inside out.
+  const bend = Math.min(0.48, height * 0.5)
+  return createTubeGeometry({
+    from: [0, height, 0],
+    control: [height * bend, height * 0.5, 0],
+    to: [-height * 0.08, ankleHeight(height), 0],
+    startRadius: 0.25 + chunk * 0.11,
+    endRadius: 0.1 + chunk * 0.03,
+    falloff: 0.78,
+    flatten: 0.88,
+    segments: 26,
+    radial: 28,
+    capStart: true,
+  })
 }
