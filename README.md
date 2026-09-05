@@ -12,6 +12,19 @@ npm run build
 
 Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and responsive CSS.
 
+## Dinosaur graphics
+
+The shared dinosaur model in the lab, races, replays, and Star Dash uses a more
+natural silhouette, smaller amber eyes, sculpted plates and frills, and a curved
+Parasaurolophus crest. Skin combines warm countershading, pigment variation,
+irregular scales, subtle bump relief, and variable roughness. Plain, spotted,
+and striped skins still respect the player's chosen colours.
+
+Scale detail fades below pixel size to limit shimmer at racing distances, with
+no added texture downloads or dependencies. Running speed is damped before it
+drives the continuous gait; ankles counter-rotate and the body settles smoothly.
+The renderer retains existing configuration, save, stats, and replay formats.
+
 ## Version 1
 
 - Procedural toy-like 3D dinosaur with mouse/touch rotation and idle animation

@@ -17,19 +17,10 @@ export interface BodyDims {
  * sags between the limbs, and both ends taper so the neck and tail can meet the
  * torso without a step. A plain ellipsoid gave every dinosaur the same egg.
  */
-/*
- * A cartoon pear: widest across the hips, broad and blunt at the tail end,
- * narrowing toward the shoulders.
- *
- * The rear used to taper away to almost nothing, which is what put a rounded
- * point where the back of the animal should be. Holding the width all the way
- * out and rounding it off flat is what gives the back view of a toy dinosaur
- * its wide, flat shield of a silhouette. The spine also sits level at the rear
- * rather than lifting, so the tail leaves low the way a drawn one does.
- */
-const RIB_HEIGHT = [0.44, 0.84, 0.98, 1.0, 0.99, 0.96, 0.9, 0.82, 0.68, 0.46]
-const RIB_WIDTH = [0.42, 0.86, 1.0, 1.0, 0.98, 0.94, 0.88, 0.78, 0.62, 0.4]
-const SPINE_RISE = [0.02, 0.0, -0.02, -0.05, -0.07, -0.07, -0.03, 0.04, 0.12, 0.2]
+// Muscular hips taper into the tail; a deep ribcage narrows at the shoulders.
+const RIB_HEIGHT = [0.35, 0.7, 0.91, 1.0, 1.0, 0.96, 0.89, 0.75, 0.44, 0.1]
+const RIB_WIDTH = [0.32, 0.65, 0.89, 0.98, 1.0, 0.95, 0.85, 0.7, 0.4, 0.09]
+const SPINE_RISE = [0.1, 0.09, 0.06, 0.02, -0.03, -0.04, 0.01, 0.1, 0.2, 0.28]
 
 /** Catmull-Rom through evenly spaced control values, t in 0..1. */
 function sampleCurve(values: number[], t: number) {
@@ -99,7 +90,7 @@ export function createSweptGeometry(
   dims: BodyDims,
   segments = 46,
   // These are small meshes on a handful of dinosaurs, and the silhouette is the
-  // whole read at toy scale, so the rings are dense enough not to show corners.
+  // important at race scale, so the rings are dense enough not to show corners.
   radial = 40,
 ) {
   const positions: number[] = []
@@ -150,6 +141,35 @@ export function createSweptGeometry(
 }
 
 export const createBodyGeometry = (dims: BodyDims) => createSweptGeometry(BODY_PROFILE, dims)
+
+/** A thin, curved neck shield with an irregular scalloped rim. */
+export function createFrillGeometry() {
+  const geometry = new THREE.SphereGeometry(1, 56, 36)
+  const points = geometry.getAttribute('position')
+  for (let i = 0; i < points.count; i++) {
+    const x = points.getX(i), y = points.getY(i), z = points.getZ(i)
+    const radius = Math.hypot(y, z)
+    const scallop = 1 + 0.035 * Math.cos(Math.atan2(y, z) * 14) * radius ** 4
+    points.setXYZ(i, x * 0.075 - y * y * 0.12, y * 0.68 * scallop, z * 0.76 * scallop)
+  }
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+/** Rounded edges around a tapered, asymmetric dorsal plate. */
+export function createPlateGeometry() {
+  const shape = new THREE.Shape()
+    .moveTo(-0.3, 0)
+    .bezierCurveTo(-0.39, 0.23, -0.22, 0.63, -0.1, 0.86)
+    .bezierCurveTo(0.02, 0.73, 0.34, 0.39, 0.31, 0.12)
+    .quadraticCurveTo(0.14, -0.05, -0.3, 0)
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.06, bevelEnabled: true, bevelThickness: 0.035,
+    bevelSize: 0.035, bevelSegments: 3, steps: 1, curveSegments: 16,
+  })
+  geometry.translate(0, 0, -0.03)
+  return geometry
+}
 
 /** Point along a quadratic bezier. */
 export const bezier = (a: Vec3, control: Vec3, b: Vec3, t: number): Vec3 => {
