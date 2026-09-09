@@ -25,9 +25,11 @@ Scale detail fades below pixel size to limit shimmer at racing distances, with
 no added texture downloads or dependencies. Running speed is damped before it
 drives the continuous gait; ankles counter-rotate and the body settles smoothly.
 The renderer retains existing configuration, save, stats, and replay formats.
-Legs are closed at both ends, with gentler bends on short builds to prevent
-inverted faces. The geometry check verifies closed edges, outward-facing walls,
-and end-cap visibility with back-face culling enabled.
+The torso, skull, neck, and legs form one closed, welded skin. Weighted joints
+stretch that surface through a stride, so the hips and neck remain continuous
+instead of exposing hard intersection lines. The geometry checks cover extreme
+body and leg combinations, closed topology, normalized joint weights, ankle
+attachment, and four animated gait poses per build.
 
 ## Version 1
 

@@ -7,8 +7,6 @@ import { createDinoSkinMaterial, type DinoSkinOptions } from '../game/dinoSkin'
 import {
   bodySliceAt,
   ankleHeight,
-  createLegGeometry,
-  createBodyGeometry,
   createFrillGeometry,
   createPlateGeometry,
   createSweptGeometry,
@@ -19,6 +17,7 @@ import {
   type Vec3,
 } from './dinoGeometry'
 import { headShape } from './headProfiles'
+import { createContinuousSkin, strideSwing, type SurfaceOptions } from './dinoSurface'
 
 const BODY_SIZE = {
   Small: [1.25, 0.8, 1.65],
@@ -118,10 +117,6 @@ function Head({ type, palette, scale, skinOptions, offset }: {
   type: HeadType; palette: DinoPalette; scale: number; skinOptions: DinoSkinOptions; offset: Vec3
 }) {
   const shape = headShape(type)
-  const skull = useDisposable(
-    () => createSweptGeometry(shape.skull, shape.dims, 40, 34),
-    `skull-${type}`,
-  )
   const jaw = useDisposable(
     () => createSweptGeometry(shape.jaw, shape.jawDims, 36, 28),
     `jaw-${type}`,
@@ -132,7 +127,6 @@ function Head({ type, palette, scale, skinOptions, offset }: {
   const nostrilY = THREE.MathUtils.clamp((shape.nostril.y - nostrilSlice.centerY) / nostrilSlice.radiusY, -0.95, 0.95)
   const nostrilZ = Math.sqrt(1 - nostrilY * nostrilY) * nostrilSlice.radiusZ - 0.004
   const frill = useDisposable(() => type === 'Triceratops' ? createFrillGeometry() : new THREE.BufferGeometry(), `frill-${type}`)
-  const skullMaterial = useSkinMaterial({ ...skinOptions, scale }, offset)
   const jawMaterial = useSkinMaterial({ ...skinOptions, base: palette.belly, scale }, offset)
   const crest = useDisposable(() => type === 'Parasaurolophus' ? createTubeGeometry({
     from: [-0.18, 0.24, 0], control: [-0.68, 0.95, 0], to: [-1.13, 0.57, 0],
@@ -140,7 +134,6 @@ function Head({ type, palette, scale, skinOptions, offset }: {
   }) : new THREE.BufferGeometry(), `crest-${type}`)
   return (
     <group scale={scale}>
-      <mesh geometry={skull} material={skullMaterial} />
       <mesh geometry={jaw} position={[0.02, shape.jawDrop, 0]} material={jawMaterial} />
       {/* Cheek muscles bridge the jaw hinge into the rear of the skull. */}
       <mesh position={[-shape.dims.halfLength * 0.5, shape.jawDrop * 0.45, 0]}
@@ -287,14 +280,12 @@ function Foot({ type, palette }: { type: FootType; palette: DinoPalette }) {
  * inside is offset back down to the ground. Rotating a group rooted at the foot
  * would pivot the leg around its toes instead.
  */
-function GroundLeg({ x, z, height, palette, foot, geometry, material, swing }: {
+function GroundLeg({ x, z, height, palette, foot, swing }: {
   x: number
   z: number
   height: number
   palette: DinoPalette
   foot: FootType
-  geometry: THREE.BufferGeometry
-  material: THREE.Material
   swing?: RefObject<THREE.Group | null>
 }) {
   const ankle = ankleHeight(height)
@@ -307,7 +298,6 @@ function GroundLeg({ x, z, height, palette, foot, geometry, material, swing }: {
   return (
     <group position={[x, height, z]} ref={swing}>
       <group position={[0, -height, 0]}>
-        <mesh geometry={geometry} material={material} />
         {/* Knuckle at the ankle, so the taper meets the foot in a joint rather
             than an edge. */}
         <mesh position={[-height * 0.08, ankle, 0]} scale={[1, 0.84, 0.94]}>
@@ -518,38 +508,26 @@ export function Dinosaur({ config, gait }: {
     skin: config.skin,
   }
 
-  const bodyGeometry = useDisposable(
-    () => createBodyGeometry(dims),
-    `body-${dims.halfLength}-${dims.halfHeight}-${dims.halfWidth}`,
-  )
-  // One geometry per limb length, shared by the pair that uses it.
-  const hindLegGeometry = useDisposable(() => createLegGeometry(hindDraw), `hind-leg-${hindDraw.toFixed(3)}`)
-  const frontLegGeometry = useDisposable(() => createLegGeometry(frontDraw), `front-leg-${frontDraw.toFixed(3)}`)
-
-  /*
-   * Limbs wear the same hide as the torso.
-   *
-   * They used to be painted a flat base colour, so a spotted or striped
-   * dinosaur had a patterned body bolted onto plain legs — the seam was obvious
-   * and it was most of what made the build look unfinished. The offsets place
-   * each part back into the body's pattern space so the markings run on across
-   * the join. The two sides of a pair share an offset: only the stripe wobble
-   * depends on z, and it is far too small to see.
-   */
-  const hindLegMaterial = useSkinMaterial(skinOptions, [hipWorld.x, 0, 0])
-  const frontLegMaterial = useSkinMaterial(skinOptions, [frontWorld.x, 0, 0])
-  const bodyMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
-
-  const neckGeometry = useDisposable(() => createTubeGeometry({
-    from: neckStart,
-    control: neckControl,
-    to: neckEnd,
-    startRadius: longNeck ? dims.halfHeight * 0.66 : dims.halfHeight * 0.8,
-    endRadius: (longNeck ? 0.2 : 0.3) * headScale,
-    falloff: 0.7,
-    segments: longNeck ? 36 : 26,
-  }), `neck-${config.head}-${dims.halfLength}-${dims.halfHeight}-${headScale}`)
-  const neckMaterial = useSkinMaterial(skinOptions, [0, 0, 0])
+  const bodyMaterial = useSkinMaterial(skinOptions, [0, -bodyY, 0])
+  const legZ = hip.radiusZ * 0.68
+  const surfaceOptions: SurfaceOptions = {
+    dims, bodyY, tilt,
+    legs: [
+      { joint: 'hindLeft', x: hipWorld.x, z: -legZ, height: hindDraw },
+      { joint: 'hindRight', x: hipWorld.x, z: legZ, height: hindDraw },
+      ...(!biped ? [
+        { joint: 'frontLeft' as const, x: frontWorld.x, z: -frontSlice.radiusZ * 0.62, height: frontDraw },
+        { joint: 'frontRight' as const, x: frontWorld.x, z: frontSlice.radiusZ * 0.62, height: frontDraw },
+      ] : []),
+    ],
+    neck: {
+      from: neckStart, control: neckControl, to: neckEnd,
+      startRadius: longNeck ? dims.halfHeight * 0.66 : dims.halfHeight * 0.8,
+      endRadius: (longNeck ? 0.2 : 0.3) * headScale, falloff: 0.7,
+    },
+    head: { profile: shape.skull, dims: shape.dims, position: headPos, scale: headScale },
+  }
+  const surface = useDisposable(() => createContinuousSkin(surfaceOptions, bodyMaterial), JSON.stringify(surfaceOptions))
 
   // The tail carries muscle out of the hips before thinning to its tip.
   const tailStartRadius = Math.min(tailBase.radiusY * 0.9, dims.halfHeight * 0.64)
@@ -610,12 +588,13 @@ export function Dinosaur({ config, gait }: {
     // Legs swing about the hips on a diagonal gait; the pair on one diagonal
     // reaches forward while the other drives back.
     const stride = phase.stride
-    const swing = run * 0.48
+    const hindSwing = strideSwing(hindDraw, run)
+    const frontSwing = strideSwing(frontDraw, run)
     const bounce = run * 0.065
-    if (hindLeft.current) hindLeft.current.rotation.z = Math.sin(stride) * swing
-    if (hindRight.current) hindRight.current.rotation.z = Math.sin(stride + Math.PI) * swing
-    if (frontLeft.current) frontLeft.current.rotation.z = Math.sin(stride + Math.PI) * swing
-    if (frontRight.current) frontRight.current.rotation.z = Math.sin(stride) * swing
+    if (hindLeft.current) hindLeft.current.rotation.z = Math.sin(stride) * hindSwing
+    if (hindRight.current) hindRight.current.rotation.z = Math.sin(stride + Math.PI) * hindSwing
+    if (frontLeft.current) frontLeft.current.rotation.z = Math.sin(stride + Math.PI) * frontSwing
+    if (frontRight.current) frontRight.current.rotation.z = Math.sin(stride) * frontSwing
 
     if (root.current) {
       root.current.position.y = 0.055 + Math.sin(time * 1.7) * 0.008
@@ -627,12 +606,19 @@ export function Dinosaur({ config, gait }: {
       neck.current.rotation.z = Math.sin(phase.neck + 0.6) * (0.018 + run * 0.018)
       neck.current.rotation.y = Math.sin(time * 0.9) * 0.03 * Math.max(0, 1 - run)
     }
+    // Feet and head follow rigid endpoints; the skin blends those same poses
+    // through the hips and shoulders without separating the shared surface.
+    surface.bones.hindLeft.rotation.z = hindLeft.current?.rotation.z ?? 0
+    surface.bones.hindRight.rotation.z = hindRight.current?.rotation.z ?? 0
+    surface.bones.frontLeft.rotation.z = frontLeft.current?.rotation.z ?? 0
+    surface.bones.frontRight.rotation.z = frontRight.current?.rotation.z ?? 0
+    surface.bones.neck.quaternion.copy(surface.neckRest)
+    if (neck.current) surface.bones.neck.quaternion.multiply(neck.current.quaternion)
   })
-
-  const legZ = hip.radiusZ * 0.68
 
   return (
     <group ref={root} position={[0, 0.04, 0]}>
+      <primitive object={surface.mesh} dispose={null} />
       {[-1, 1].map((side) => (
         <GroundLeg
           key={`hind-${side}`}
@@ -641,8 +627,6 @@ export function Dinosaur({ config, gait }: {
           height={hindDraw}
           palette={palette}
           foot={config.feet}
-          geometry={hindLegGeometry}
-          material={hindLegMaterial}
           swing={side < 0 ? hindLeft : hindRight}
         />
       ))}
@@ -654,14 +638,11 @@ export function Dinosaur({ config, gait }: {
           height={frontDraw}
           palette={palette}
           foot={config.feet}
-          geometry={frontLegGeometry}
-          material={frontLegMaterial}
           swing={side < 0 ? frontLeft : frontRight}
         />
       ))}
 
       <group position={[0, bodyY, 0]} rotation={[0, 0, tilt]}>
-        <mesh geometry={bodyGeometry} material={bodyMaterial} />
         <BackFeature config={config} palette={palette} dims={dims} />
 
         {biped && [-1, 1].map((side) => (
@@ -674,9 +655,8 @@ export function Dinosaur({ config, gait }: {
           />
         ))}
 
-        <group ref={neck}>
-          <mesh geometry={neckGeometry} material={neckMaterial} />
-          <group position={headPos} rotation={[0, 0, -0.1]}>
+        <group ref={neck} position={neckStart}>
+          <group position={[headPos[0] - neckStart[0], headPos[1] - neckStart[1], headPos[2] - neckStart[2]]} rotation={[0, 0, -0.1]}>
             <Head type={config.head} palette={palette} scale={headScale} skinOptions={skinOptions} offset={headPos} />
             {config.feature === 'Horns' && config.head !== 'Triceratops' && (() => {
               // Anchor on the skull's own surface at its horn station. Fixed

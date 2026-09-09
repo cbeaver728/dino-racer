@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { ContactShadows, Environment, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -5,9 +6,15 @@ import type { DinosaurConfig } from '../game/dinosaurTypes'
 import { Dinosaur } from './Dinosaur'
 
 export function DinoScene({ config }: { config: DinosaurConfig }) {
+  const [running, setRunning] = useState(false)
+  const gait = useRef(0)
+  useEffect(() => { gait.current = running ? 1 : 0 }, [running])
   return (
     <div className="scene">
       <div className="hint">☝️ Drag to spin!</div>
+      <button className="motion-toggle" type="button" aria-pressed={running} onClick={() => setRunning(value => !value)}>
+        {running ? 'Ⅱ Stand still' : '▶ Preview run'}
+      </button>
       {/* `shadows="soft"` uses PCFSoftShadowMap. drei's <SoftShadows> patches
           THREE.ShaderChunk globally, so the save modal's second scene patched it
           a second time and every shader on the page failed to compile. */}
@@ -41,7 +48,7 @@ export function DinoScene({ config }: { config: DinosaurConfig }) {
         <directionalLight position={[-6, 4.5, -5]} intensity={1.1} color="#9fd4ff" />
         <directionalLight position={[0, 2, 8]} intensity={0.45} color="#ffe9d0" />
 
-        <Dinosaur config={config} />
+        <Dinosaur config={config} gait={gait} />
 
         <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
           <circleGeometry args={[13, 64]} />
