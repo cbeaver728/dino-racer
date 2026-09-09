@@ -2,10 +2,8 @@ import * as THREE from 'three'
 import type { DinoColor, PatternColor } from './dinosaurTypes'
 
 /**
- * Every dinosaur is drawn from a small palette derived from the one colour the
- * player picks. Two-tone shading (lit back, pale belly) is what makes a toy read
- * as solid instead of as a flat silhouette, so the shades are generated rather
- * than hand-listed — new colours in COLORS work without extra work here.
+ * Natural pigmentation derived from the player's chosen colours. A muted hide,
+ * warm underside, and deeper folds remain coordinated for every saved build.
  */
 export interface DinoPalette {
   /** Main body colour, the one shown on the colour buttons. */
@@ -24,8 +22,9 @@ export interface DinoPalette {
   patternSoft: string
   /** Warm off-white for claws, horns, teeth and beaks. */
   bone: string
-  /** Eye white. */
+  /** Dark tissue around the iris. */
   sclera: string
+  iris: string
   /** Pupil and nostrils. */
   pupil: string
 }
@@ -51,17 +50,20 @@ const shift = (
 }
 
 export function buildPalette(color: DinoColor, patternColor: PatternColor): DinoPalette {
-  const base = new THREE.Color(color)
-  const pattern = new THREE.Color(patternColor)
+  // Keep the selected hue identifiable, with earthy pigmentation instead of
+  // saturated plastic. Work in linear colour, as the lighting pipeline does.
+  const base = new THREE.Color(color).lerp(new THREE.Color('#827b58'), 0.22)
+  const pattern = new THREE.Color(patternColor).lerp(base, 0.16)
 
   return {
     base: base.getStyle(),
-    belly: shift(base, { hue: 0.02, sat: 0.5, light: 1.42 }),
-    shade: shift(base, { sat: 1.12, light: 0.7 }),
+    belly: base.clone().lerp(new THREE.Color('#cbb991'), 0.64).getStyle(),
+    shade: shift(base, { sat: 0.9, light: 0.48 }),
     pattern: pattern.getStyle(),
     patternSoft: shift(pattern, { sat: 0.78, light: 1.3 }),
-    bone: '#fdf3dc',
-    sclera: '#fffdf6',
-    pupil: '#1b2a3d',
+    bone: '#d8c7a3',
+    sclera: '#37392a',
+    iris: '#c9973e',
+    pupil: '#101711',
   }
 }

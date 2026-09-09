@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { ContactShadows, Environment, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -5,16 +6,22 @@ import type { DinosaurConfig } from '../game/dinosaurTypes'
 import { Dinosaur } from './Dinosaur'
 
 export function DinoScene({ config }: { config: DinosaurConfig }) {
+  const [running, setRunning] = useState(false)
+  const gait = useRef(0)
+  useEffect(() => { gait.current = running ? 1 : 0 }, [running])
   return (
     <div className="scene">
       <div className="hint">☝️ Drag to spin!</div>
+      <button className="motion-toggle" type="button" aria-pressed={running} onClick={() => setRunning(value => !value)}>
+        {running ? 'Ⅱ Stand still' : '▶ Preview run'}
+      </button>
       {/* `shadows="soft"` uses PCFSoftShadowMap. drei's <SoftShadows> patches
           THREE.ShaderChunk globally, so the save modal's second scene patched it
           a second time and every shader on the page failed to compile. */}
       <Canvas
         shadows="soft"
-        camera={{ position: [7.4, 4.2, 8.4], fov: 41 }}
-        dpr={[1, 1.6]}
+        camera={{ position: [6.6, 3.4, 8.8], fov: 36 }}
+        dpr={[1, 2]}
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
         <color attach="background" args={['#cdeeff']} />
@@ -23,14 +30,15 @@ export function DinoScene({ config }: { config: DinosaurConfig }) {
         {/* Low ambient plus a sky/ground bounce keeps the shapes readable.
             A single bright ambient light flattens everything into a silhouette. */}
         <ambientLight intensity={0.32} />
-        <hemisphereLight args={['#ddf4ff', '#7fae53', 0.85]} />
+        <hemisphereLight args={['#e4edf2', '#84765d', 0.7]} />
         <directionalLight
           castShadow
           position={[5, 8.5, 4.5]}
-          intensity={2.4}
+          intensity={2.0}
           color="#fff3dc"
           shadow-mapSize={[2048, 2048]}
           shadow-bias={-0.0005}
+          shadow-normalBias={0.025}
           shadow-camera-left={-8}
           shadow-camera-right={8}
           shadow-camera-top={8}
@@ -40,22 +48,22 @@ export function DinoScene({ config }: { config: DinosaurConfig }) {
         <directionalLight position={[-6, 4.5, -5]} intensity={1.1} color="#9fd4ff" />
         <directionalLight position={[0, 2, 8]} intensity={0.45} color="#ffe9d0" />
 
-        <Dinosaur config={config} />
+        <Dinosaur config={config} gait={gait} />
 
         <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
           <circleGeometry args={[13, 64]} />
-          <meshStandardMaterial color="#93d96a" roughness={0.95} />
+          <meshStandardMaterial color="#a7b38b" roughness={0.95} />
         </mesh>
         <ContactShadows position={[0, 0.012, 0]} opacity={0.42} scale={10} blur={2.6} far={5} />
-        <Environment preset="park" environmentIntensity={0.45} />
+        <Environment preset="park" environmentIntensity={0.3} />
 
         <OrbitControls
           enablePan={false}
-          minDistance={8.7}
-          maxDistance={12.5}
+          minDistance={5.5}
+          maxDistance={14}
           minPolarAngle={Math.PI / 3.4}
           maxPolarAngle={Math.PI / 2.12}
-          target={[0, 1.55, 0]}
+          target={[0, config.head === 'Brachiosaurus' ? 2.2 : 1.7, 0]}
         />
       </Canvas>
     </div>
