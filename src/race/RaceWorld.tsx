@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { WORLD_LIFT, WORLD_SCALE, type BiomeLayout, type Course } from './course'
 import type { ChaseTarget } from './Racers'
 import type { Terrain } from './raceTypes'
+import { AuroraScenery } from './AuroraScenery'
 
 const seeded = (seed: number) => {
   const value = Math.sin(seed * 975.31) * 43758.5453
@@ -58,17 +59,38 @@ function ribbonGeometry(samples: THREE.Vector3[], width: number, lift = 0, close
 }
 
 /** One stretch of road: the main circuit, or one way round a fork. */
-function RoadRibbon({ samples, closed, accent, surface, shoulder }: {
-  samples: THREE.Vector3[]; closed: boolean; accent?: string; surface?: string; shoulder?: string
+function RoadRibbon({ samples, closed, accent, surface, shoulder, stone = false }: {
+  samples: THREE.Vector3[]; closed: boolean; accent?: string; surface?: string; shoulder?: string; stone?: boolean
 }) {
   const verge = useMemo(() => ribbonGeometry(samples, 1.72, .015, closed), [samples, closed])
   const road = useMemo(() => ribbonGeometry(samples, 1.46, .035, closed), [samples, closed])
+  const texture = useMemo(() => {
+    if (!stone) return null
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 128
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#dce3e7'; ctx.fillRect(0, 0, 128, 128)
+    for (let i = 0; i < 1800; i++) {
+      ctx.fillStyle = i % 2 ? '#bdccd533' : '#ffffff44'
+      ctx.fillRect(seeded(i + 30) * 128, seeded(i + 96) * 128, 1, 1)
+    }
+    ctx.strokeStyle = '#a6b7c255'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(128, 0); ctx.moveTo(64, 0); ctx.lineTo(64, 128); ctx.stroke()
+    const map = new THREE.CanvasTexture(canvas)
+    map.wrapS = map.wrapT = THREE.RepeatWrapping
+    map.colorSpace = THREE.SRGBColorSpace
+    const length = samples.reduce((sum, p, i) => sum + (i ? p.distanceTo(samples[i - 1]) : 0), 0)
+    map.repeat.set(2, length / 2.5)
+    map.anisotropy = 4
+    return map
+  }, [samples, stone])
+  useEffect(() => () => texture?.dispose(), [texture])
   return <group>
     <mesh geometry={verge} receiveShadow>
       <meshStandardMaterial color={accent ?? shoulder ?? '#796647'} roughness={1} side={THREE.DoubleSide} />
     </mesh>
     <mesh geometry={road} receiveShadow>
-      <meshStandardMaterial color={surface ?? '#cda968'} roughness={.98} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={surface ?? '#cda968'} map={texture} roughness={.98} side={THREE.DoubleSide} />
     </mesh>
   </group>
 }
@@ -95,7 +117,7 @@ function RaceRoad({ course }: { course: Course }) {
     {!forked && <RoadRibbon samples={course.curve.getSpacedPoints(180)} closed surface={paint?.surface} shoulder={paint?.shoulder} />}
     {forked && course.legs.map((leg, index) => {
       if (leg.kind === 'shared') {
-        return <RoadRibbon key={`leg-${index}`} samples={leg.samples} closed={false} surface={paint?.surface} shoulder={paint?.shoulder} />
+        return <RoadRibbon key={`leg-${index}`} samples={leg.samples} closed={false} surface={paint?.surface} shoulder={paint?.shoulder} stone={course.def.theme === 'aurora'} />
       }
       const split = course.splits[leg.splitIndex]
       return <group key={`fork-${index}`}>
@@ -106,6 +128,7 @@ function RaceRoad({ course }: { course: Course }) {
             closed={false}
             accent={BRANCH_SHOULDER[split.terrains[side]]}
             surface={paint?.surface}
+            stone={course.def.theme === 'aurora'}
           />
         ))}
       </group>
@@ -591,24 +614,28 @@ export function RaceWorld({ course, children, follow, chase, resetView, resetOff
   resetView?: number
   resetOffset?: readonly [number, number, number]
 }) {
+  const aurora = course.def.theme === 'aurora'
   return <Canvas shadows camera={{ position: [29, 31, 36], fov: 39 }} dpr={[1, 1.6]}>
-    <color attach="background" args={[course.def.sea?.sky ?? '#9bcfd5']} />
-    <fog attach="fog" args={[course.def.sea?.sky ?? '#9bcfd5', 60, 118]} />
-    <hemisphereLight args={['#fff4dc', '#426348', 2.1]} /><directionalLight castShadow position={[-19, 29, 15]} intensity={2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-38} shadow-camera-right={38} shadow-camera-top={38} shadow-camera-bottom={-38} />
+    <color attach="background" args={[aurora ? '#111b35' : course.def.sea?.sky ?? '#9bcfd5']} />
+    <fog attach="fog" args={[aurora ? '#111b35' : course.def.sea?.sky ?? '#9bcfd5', aurora ? 85 : 60, aurora ? 165 : 118]} />
+    <hemisphereLight args={[aurora ? '#b5ceff' : '#fff4dc', aurora ? '#365963' : '#426348', aurora ? 1.7 : 2.1]} /><directionalLight castShadow color={aurora ? '#c5d8ff' : '#ffffff'} position={[-19, 29, 15]} intensity={aurora ? 2 : 2.7} shadow-mapSize={[2048, 2048]} shadow-camera-left={-42} shadow-camera-right={42} shadow-camera-top={38} shadow-camera-bottom={-38} />
+    {aurora && <directionalLight position={[22, 12, -12]} color="#71efcf" intensity={1.1} />}
     <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -.12, 0]}>
       <planeGeometry args={[150, 140]} />
-      <meshStandardMaterial color={course.def.sea?.water ?? '#78a956'} roughness={course.def.sea ? .3 : 1} />
+      <meshStandardMaterial color={aurora ? '#101e35' : course.def.sea?.water ?? '#78a956'} roughness={course.def.sea || aurora ? .3 : 1} />
     </mesh>
     <group scale={[WORLD_SCALE, WORLD_LIFT, WORLD_SCALE]}>
       {course.def.sea && <Island sea={course.def.sea} />}
+      {aurora ? <AuroraScenery course={course} /> : <>
       <PlainsBiome layout={course.def.biomes.Plains} course={course} />
       <MarshBiome layout={course.def.biomes.Marsh} course={course} />
       <MountainBiome layout={course.def.biomes.Mountains} course={course} />
       <ForestBiome layout={course.def.biomes.Forest} course={course} />
+      </>}
       <RaceRoad course={course} />
       <LavaPools course={course} />
       {course.def.volcano && <Volcano at={course.def.volcano} />}
-      <BridgeSupports course={course} />
+      {!aurora && <BridgeSupports course={course} />}
       <TrackTerrainDetails course={course} />
       <StartGate course={course} />
       {children}

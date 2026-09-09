@@ -12,6 +12,23 @@ npm run build
 
 Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and responsive CSS.
 
+## Track 4: Aurora Falls
+
+A twilight circuit around a waterfall sanctuary: a raised skyway, animated aurora,
+moonshroom groves, crystal gardens, fireflies, and pterosaurs circling an ancient
+celestial monument. Select **Aurora Falls** in the race picker, or open
+`/race.html?track=aurora` directly.
+
+Two equal-distance forks offer crystal coast / moonshroom grove and moonpool /
+lantern meadow. Choose the terrain that suits your dinosaur. Glowing chevrons
+between the current gates give every lane **25% more speed** until the exit gate,
+on both laps. Stars and tornadoes still work, as do Drive, Watch, and replay.
+
+The scenery is procedural Three.js geometry and lightweight shaders, with no new
+dependencies, remote assets, or postprocessing. The other three tracks retain
+their environments and pace. Run `npm run test:aurora` to check route continuity,
+equal-length forks, boost boundaries and lane fairness, and complete two-lap races.
+
 ## Version 1
 
 - Procedural toy-like 3D dinosaur with mouse/touch rotation and idle animation
