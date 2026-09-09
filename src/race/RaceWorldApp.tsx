@@ -24,6 +24,7 @@ import {
   REPLAY_SPEEDS,
   createRecorder,
   emptySample,
+  routeOf,
   sampleReplay,
   type Playback,
   type Replay,
@@ -348,7 +349,7 @@ export default function RaceWorldApp() {
               : effect === 'boost' ? 'Star boost!'
                 : effect === 'reverse' ? 'Spun around!'
                   : course.currentAt(wrapped) > 1 ? 'Starlight current · +25%'
-                    : course.terrainOn(wrapped, course.splits.map((_, i) => (sample.branches >> i) & 1)),
+                    : course.terrainOn(wrapped, routeOf(sample.branches, course.splits.length)),
             progress: sample.progress,
           }
         })
@@ -455,7 +456,7 @@ export default function RaceWorldApp() {
     </button>}
 
     {showInfo && <><aside className="race-map" aria-label="Race course terrain">
-      <div className="race-map-title"><span>{course.def.icon}</span><div><strong>{course.def.name.toUpperCase()}</strong><small>Terrain across the complete course.</small></div></div>
+      <div className="race-map-title"><span>{course.def.icon}</span><div><strong>{course.def.name.toUpperCase()}</strong><small>{course.def.blurb}</small></div></div>
       <div className="terrain-list">{COURSE.map((item, index) => <button key={item.terrain} className={selectedTerrain === item.terrain ? 'active' : ''} onClick={() => setSelectedTerrain(item.terrain)}>
         <b>{index + 1}</b><span>{item.icon}</span><div><strong>{item.terrain}</strong><small>{course.mix.find((entry) => entry.terrain === item.terrain)?.share ?? 0}% of course</small></div><i style={{ background: item.color }} />
       </button>)}</div>

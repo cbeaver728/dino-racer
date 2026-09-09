@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
-import { WORLD_LIFT, WORLD_SCALE, type BiomeLayout, type Course } from './course'
+import { WORLD_LIFT, WORLD_SCALE, type BiomeLayout, type Course, type CourseSplit } from './course'
 import type { ChaseTarget } from './Racers'
-import type { Terrain } from './raceTypes'
+import { COURSE, type Terrain } from './raceTypes'
 import { AuroraScenery } from './AuroraScenery'
 
 const seeded = (seed: number) => {
@@ -483,6 +483,80 @@ function PlainsBiome({ layout, course }: { layout: BiomeLayout; course: Course }
   </group>
 }
 
+/**
+ * A signpost over each way round a fork, naming the ground it leads to.
+ *
+ * The names were already on the course - "Lagoon or jungle" - but they only
+ * ever appeared in the setup panel, so at the fork itself the two roads looked
+ * alike and the choice was a guess. The terrain's own colour and icon go on the
+ * board too, so it still says something to a child who cannot read it.
+ *
+ * Hung a third of the way in: far enough that the two boards clear each other
+ * (the roads are 6.4 apart there at the tightest), near enough that both are in
+ * view from the approach, while there is still time to pick a side.
+ */
+const SIGN_AT = .3
+
+function ForkSign({ course, split, side }: { course: Course; split: CourseSplit; side: 0 | 1 }) {
+  const terrain = split.terrains[side]
+  const section = COURSE.find((entry) => entry.terrain === terrain)
+  const name = (split.label.split(' or ')[side] ?? terrain).trim()
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512; canvas.height = 160
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.fillStyle = section?.accent ?? '#f7f1da'; ctx.fillRect(0, 0, 512, 160)
+    ctx.strokeStyle = section?.color ?? '#493c2f'; ctx.lineWidth = 12
+    ctx.strokeRect(6, 6, 500, 148)
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.font = '64px serif'
+    ctx.fillText(section?.icon ?? '', 74, 84)
+    ctx.fillStyle = section?.color ?? '#493c2f'
+    // Long names shrink rather than spill off the end of the board.
+    ctx.font = 'bold 62px sans-serif'
+    const label = name.toUpperCase()
+    const room = 380
+    const width = ctx.measureText(label).width
+    if (width > room) ctx.font = `bold ${Math.floor(62 * room / width)}px sans-serif`
+    ctx.fillText(label, 300, 84)
+    const map = new THREE.CanvasTexture(canvas)
+    map.colorSpace = THREE.SRGBColorSpace
+    map.anisotropy = 4
+    return map
+  }, [name, section])
+  useEffect(() => () => texture?.dispose(), [texture])
+
+  const frame = useMemo(() => {
+    const t = split.from + (split.to - split.from) * SIGN_AT
+    const route = course.splits.map((_, index) => (index === split.index ? side : 0))
+    return course.frameAt(t, 0, route)
+  }, [course, split, side])
+
+  // frameAt reports the heading the models face (+X); the sign is built facing
+  // +Z, so it takes the angle the other way round, the same as the start gate.
+  const angle = Math.atan2(Math.cos(frame.heading), -Math.sin(frame.heading))
+  return <group position={[frame.position.x, frame.position.y, frame.position.z]} rotation={[0, angle, 0]}>
+    {[-1.18, 1.18].map((x) => <mesh key={x} castShadow position={[x, .84, 0]}>
+      <boxGeometry args={[.16, 1.68, .16]} /><meshStandardMaterial color="#5b4632" />
+    </mesh>)}
+    <mesh castShadow position={[0, 1.72, 0]}>
+      <boxGeometry args={[2.62, .62, .14]} /><meshStandardMaterial color="#5b4632" />
+    </mesh>
+    {texture && [.075, -.075].map((z) => <mesh key={z} position={[0, 1.72, z]} rotation={[0, z > 0 ? 0 : Math.PI, 0]}>
+      <planeGeometry args={[2.42, .5]} /><meshBasicMaterial map={texture} toneMapped={false} />
+    </mesh>)}
+  </group>
+}
+
+/** Every fork on the course gets a board over each way round. */
+function ForkSigns({ course }: { course: Course }) {
+  return <group>
+    {course.splits.flatMap((split) => ([0, 1] as const).map((side) =>
+      <ForkSign key={`${split.index}-${side}`} course={course} split={split} side={side} />))}
+  </group>
+}
+
 function StartGate({ course }: { course: Course }) {
   const frame = course.frameAt(course.startT, 0)
   const point = frame.position
@@ -637,6 +711,8 @@ export function RaceWorld({ course, children, follow, chase, resetView, resetOff
       {course.def.volcano && <Volcano at={course.def.volcano} />}
       {!aurora && <BridgeSupports course={course} />}
       <TrackTerrainDetails course={course} />
+      {/* Aurora Falls hangs its own lit gates in AuroraScenery. */}
+      {!aurora && <ForkSigns course={course} />}
       <StartGate course={course} />
       {children}
     </group>

@@ -8,6 +8,7 @@ A cheerful, touch-first 3D dinosaur builder and racer for kids ages 4–10. Play
 npm install
 npm run dev
 npm run build
+npm run check   # walks every course, in every lane, down every route
 ```
 
 Built with Vite, React, TypeScript, Three.js, React Three Fiber, Drei, and responsive CSS.
@@ -50,6 +51,7 @@ equal-length forks, boost boundaries and lane fairness, and complete two-lap rac
 - **Smoking Isle** — a third, longer track: a tropical island lap round a live volcano that forks three times. Each fork offers two ways round of exactly equal length through different terrain, so the choice is about what suits your dinosaur and never about distance. Lava pools on the volcano fork slow anything that runs through them.
 - **Replay** — every race is recorded and can be watched again from the podium, with play/pause, a scrub bar, 0.5x/1x/2x speed and the same cameras the race uses. It opens on the wide shot of the whole circuit.
 - **Racing guide** — an info button beside the stats in the lab opens a panel listing every rule the race runs on, terrain by terrain, ticking the ones your dinosaur already has. It is generated from the same rule table the simulation walks, so it cannot go stale. Each terrain's percentage is measured against a *typical* dinosaur rather than a bonus-free one nobody can build, so 100% means average and about half of the 13,500 builds sit below it. That reference point is swept from the rule table on first use (~30ms) so it cannot drift; the race itself still runs on raw pace.
+- **Signposted forks** — every fork now carries a board over each way round, naming the ground it leads to and showing that terrain's own colour and icon, so the choice is readable at a glance and still says something to a child who cannot read yet. The names were always on the course; they had only ever appeared in the setup panel.
 - **Never a dead end** — with nothing built yet you drive a rival rather than only watching, and Star Dash picks one for you instead of turning you away.
 - **Sound** — countdown, start, star, tornado, final lap and finish cues, synthesised in `src/game/sound.ts` with no audio files, plus a mute button on both game pages. Sound starts muted.
 
