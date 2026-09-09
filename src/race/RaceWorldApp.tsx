@@ -63,7 +63,7 @@ export default function RaceWorldApp() {
   const [podiumOpen, setPodiumOpen] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [selectedTerrain, setSelectedTerrain] = useState<Terrain>('Marsh')
-  const [courseIndex, setCourseIndex] = useState(0)
+  const [courseIndex, setCourseIndex] = useState(() => Math.max(0, COURSES.findIndex((entry) => entry.def.id === new URLSearchParams(window.location.search).get('track'))))
   const [mode, setMode] = useState<Mode>('drive')
   const [useRivals, setUseRivals] = useState(true)
   const [driver, setDriver] = useState<string | null>(null)
@@ -100,6 +100,9 @@ export default function RaceWorldApp() {
   const chase = useRef<ChaseTarget>({ position: new THREE.Vector3(), heading: 0, active: false })
 
   const course = COURSES[courseIndex]
+  useEffect(() => {
+    setView((current) => ({ key: current.key + 1, offset: overviewFor(course.extent * (course.def.theme === 'aurora' ? 1.28 : 1)) }))
+  }, [course])
   const racing = phase === 'racing'
   const replaying = phase === 'replay'
   const started = phase !== 'setup'
@@ -134,7 +137,7 @@ export default function RaceWorldApp() {
     const next = order[(at + 1) % order.length]
     // Coming back from a chase would otherwise leave the camera parked a few
     // feet behind a dinosaur, which reads as neither free nor following.
-    if (next === 'free') snapView(overviewFor(course.extent))
+    if (next === 'free') snapView(overviewFor(course.extent * (course.def.theme === 'aurora' ? 1.28 : 1)))
     if (next === 'leader') snapView(FOLLOW_VIEW)
     return next
   })
@@ -333,7 +336,6 @@ export default function RaceWorldApp() {
           const done = entry.finishedAt !== null && replayTime >= entry.finishedAt
           const place = done ? entry.place : null
           const wrapped = (((course.startT + sample.progress) % 1) + 1) % 1
-          const point = course.curve.getPointAt(wrapped)
           const effect = sample.boost ? 'boost' as const : sample.flip ? 'reverse' as const : null
           return {
             id: entry.id,
@@ -345,7 +347,8 @@ export default function RaceWorldApp() {
             note: place ? `Finished ${PLACE_LABEL[place - 1]}`
               : effect === 'boost' ? 'Star boost!'
                 : effect === 'reverse' ? 'Spun around!'
-                  : course.terrainAt(point.x, point.z),
+                  : course.currentAt(wrapped) > 1 ? 'Starlight current · +25%'
+                    : course.terrainOn(wrapped, course.splits.map((_, i) => (sample.branches >> i) & 1)),
             progress: sample.progress,
           }
         })
@@ -368,7 +371,7 @@ export default function RaceWorldApp() {
       note: racer.place ? `Finished ${PLACE_LABEL[racer.place - 1]}`
         : racer.effect === 'boost' ? 'Star boost!'
           : racer.effect === 'reverse' ? 'Spun around!'
-            : racer.terrain,
+            : course.currentAt(course.startT + racer.progress) > 1 ? 'Starlight current · +25%' : racer.terrain,
       progress: racer.progress,
     }))
   }, [replaying, replayTime, standings, course])
@@ -452,9 +455,9 @@ export default function RaceWorldApp() {
     </button>}
 
     {showInfo && <><aside className="race-map" aria-label="Race course terrain">
-      <div className="race-map-title"><span>🗺️</span><div><strong>THE ADVENTURE LOOP</strong><small>A continuous circuit through four wild biomes.</small></div></div>
+      <div className="race-map-title"><span>{course.def.icon}</span><div><strong>{course.def.name.toUpperCase()}</strong><small>Terrain across the complete course.</small></div></div>
       <div className="terrain-list">{COURSE.map((item, index) => <button key={item.terrain} className={selectedTerrain === item.terrain ? 'active' : ''} onClick={() => setSelectedTerrain(item.terrain)}>
-        <b>{index + 1}</b><span>{item.icon}</span><div><strong>{item.terrain}</strong><small>{item.distance}% of race</small></div><i style={{ background: item.color }} />
+        <b>{index + 1}</b><span>{item.icon}</span><div><strong>{item.terrain}</strong><small>{course.mix.find((entry) => entry.terrain === item.terrain)?.share ?? 0}% of course</small></div><i style={{ background: item.color }} />
       </button>)}</div>
     </aside>
     <section className="race-report">
@@ -472,7 +475,7 @@ export default function RaceWorldApp() {
       <div className="track-picker">{COURSES.map((option, index) => <button
         key={option.def.id}
         type="button"
-        className={index === courseIndex ? 'chosen' : ''}
+        className={`${index === courseIndex ? 'chosen' : ''} ${option.def.theme === 'aurora' ? 'aurora-track' : ''}`}
         aria-pressed={index === courseIndex}
         onClick={() => setCourseIndex(index)}
       >
@@ -480,6 +483,13 @@ export default function RaceWorldApp() {
         <strong>{option.def.name}</strong>
         <small>{option.mix.map((entry) => `${entry.terrain} ${entry.share}%`).join(' · ')}</small>
       </button>)}</div>
+
+      {course.def.theme === 'aurora' && <div className="aurora-brief">
+        <span>EXPEDITION 04 · AFTER DARK</span>
+        <strong>Follow the light.</strong>
+        <p>Glowing arrows give everyone +25% speed. Take the crystal coast or moonshroom grove, then choose the moonpool or lantern meadow.</p>
+        <div><b>✧ Skyway currents</b><b>◇ Two route choices</b></div>
+      </div>}
 
       <div className="picker-head">
         <span>🎮</span>

@@ -123,6 +123,15 @@ body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; 
 .track-picker span { grid-row: 1 / span 2; align-self: center; font-size: 1.4rem; }
 .track-picker strong { font-size: .8rem; }
 .track-picker small { font-size: .55rem; color: #647a70; line-height: 1.3; }
+.track-picker button.aurora-track { background: #e9eaf5; border-color: #b7bbd7; }
+.track-picker button.aurora-track.chosen { background: #243d56; border-color: #77d6c6; color: #f0fff9; }
+.track-picker button.aurora-track.chosen small { color: #c1dedc; }
+.aurora-brief { margin: 0 0 14px; padding: 13px; border-radius: 12px; background: linear-gradient(135deg, #142d42, #383059); color: #e7fff4; border: 1px solid #719aab; }
+.aurora-brief > span { display: block; color: #96e6d4; font-size: .5rem; letter-spacing: 1.4px; font-weight: 900; }
+.aurora-brief > strong { display: block; margin-top: 5px; font: 800 1.25rem 'Baloo 2'; }
+.aurora-brief p { margin: 3px 0 10px; color: #cbdbeb; font-size: .66rem; line-height: 1.5; }
+.aurora-brief div { display: flex; flex-wrap: wrap; gap: 5px; }
+.aurora-brief b { padding: 4px 6px; border: 1px solid #80bfb744; border-radius: 5px; font-size: .51rem; color: #aaf2dd; }
 
 .mode-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 11px; }
 .mode-picker button {

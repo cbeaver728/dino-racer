@@ -109,6 +109,9 @@ export interface CourseDefinition {
    * sand island, so a course laid on pale ground names a darker one.
    */
   road?: { surface: string; shoulder: string }
+  theme?: 'aurora'
+  /** Glowing straights accelerate every racer equally, on both laps. */
+  currents?: { from: number; to: number; pace: number }[]
 }
 
 /** A built fork. Neither way is the main circuit: the road parts in two. */
@@ -170,6 +173,7 @@ export interface Course {
   frameAt(t: number, lane: number, route?: Route): { position: THREE.Vector3; heading: number }
   /** 1 in the clear, less inside a lava pool. */
   paceAt(x: number, z: number): number
+  currentAt(t: number): number
   /** Distance to the edge of the nearest pool; negative inside one. */
   clearanceAt(x: number, z: number): number
   /** Lap fractions between which lava can be met, so racers only look there. */
@@ -498,6 +502,11 @@ export function buildCourse(def: CourseDefinition): Course {
     return 1
   }
 
+  const currentAt = (t: number) => {
+    const wrapped = ((t % 1) + 1) % 1
+    return def.currents?.find((zone) => wrapped >= zone.from && wrapped < zone.to)?.pace ?? 1
+  }
+
   // The stretch lava lives on, with room either side for the run in and out.
   // Everywhere else the racers can skip looking for it entirely.
   /*
@@ -547,7 +556,7 @@ export function buildCourse(def: CourseDefinition): Course {
 
   return {
     def, curve, samples: roadPoints, length: lapLength, startT: def.startT, mix, splits, legs, extent, lava,
-    terrainAt, splitAt, terrainOn, frameAt, paceAt, clearanceAt, lavaSpan, distanceToRoad,
+    terrainAt, splitAt, terrainOn, frameAt, paceAt, currentAt, clearanceAt, lavaSpan, distanceToRoad,
   }
 }
 
@@ -659,7 +668,36 @@ const VOLCANO_ISLAND: CourseDefinition = {
   },
 }
 
-export const COURSE_DEFS = [WILD_CIRCUIT, FIGURE_EIGHT, VOLCANO_ISLAND]
+const AURORA_FALLS: CourseDefinition = {
+  id: 'aurora',
+  name: 'Aurora Falls',
+  blurb: 'Chase the northern lights. Climb the skyway, choose crystal or mushroom trails, and ride glowing straights for a 25% burst of speed.',
+  icon: '🌌',
+  theme: 'aurora',
+  tension: .3,
+  startT: .81,
+  bridgeMinY: .65,
+  road: { surface: '#728da3', shoulder: '#263f60' },
+  points: [
+    [-22, .18, 4], [-23, .2, -4], [-20, .65, -11], [-13, 2.8, -16],
+    [-4, 4.5, -17], [5, 4.8, -16], [14, 3.6, -12], [21, 1.4, -6],
+    [23, .18, 2], [20, .18, 10], [12, .18, 15], [3, .18, 13],
+    [-5, .18, 16], [-15, .18, 13],
+  ],
+  splits: [
+    { from: .60, to: .75, bow: 3.8, left: 'Mountains', right: 'Forest', label: 'Crystal coast or moonshroom grove' },
+    { from: .87, to: .98, bow: 3.2, left: 'Marsh', right: 'Plains', label: 'Moonpool or lantern meadow' },
+  ],
+  currents: [{ from: .24, to: .35, pace: 1.25 }, { from: .77, to: .83, pace: 1.25 }],
+  biomes: {
+    Mountains: { center: [8, -13], patch: [17, 9], spread: [13, 6] },
+    Forest: { center: [10, 10], patch: [12, 8], spread: [10, 7] },
+    Marsh: { center: [-20, 2], patch: [8, 12], spread: [6, 10] },
+    Plains: { center: [-9, 11], patch: [12, 8], spread: [10, 7] },
+  },
+}
+
+export const COURSE_DEFS = [WILD_CIRCUIT, FIGURE_EIGHT, VOLCANO_ISLAND, AURORA_FALLS]
 export const COURSES = COURSE_DEFS.map(buildCourse)
 export const defaultCourse = COURSES[0]
 export const courseById = (id: string) => COURSES.find((course) => course.def.id === id) ?? defaultCourse

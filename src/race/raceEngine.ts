@@ -179,7 +179,7 @@ export function stepRacer(racer: RacerState, delta: number, elapsed: number, cou
   // Wading through a lava pool costs a chunk of pace for as long as they are in it.
   const here = course.frameAt(t, racer.lane, racer.route).position
   const molten = course.paceAt(here.x, here.z)
-  racer.speed = BASE_SPEED * racer.paces[racer.terrain] * surge * boost * fade * molten
+  racer.speed = BASE_SPEED * racer.paces[racer.terrain] * surge * boost * fade * molten * course.currentAt(lapT)
 
   // A tornado sends them back down the track; never past the start line, so the
   // standings cannot read as a negative lap.
