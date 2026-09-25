@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { Dinosaur } from '../components/Dinosaur'
 import { playStar, playTornado } from '../game/sound'
 import { WORLD_LIFT, WORLD_SCALE, type Course } from './course'
-import { BASE_SPEED, LAP_COUNT, stepRacer, type RacerState } from './raceEngine'
+import { BASE_SPEED, LAP_COUNT, plannedRoute, stepRacer, type RacerState } from './raceEngine'
 import { PickupModel } from './PickupModels'
 import { STEER_LIMIT, STEER_SPEED, type Steering } from './steering'
 import { emptySample, type ReplayRecorder } from './replay'
@@ -28,8 +28,21 @@ export const DINO_SCALE = 0.34
 export interface ChaseTarget {
   position: THREE.Vector3
   heading: number
+  /**
+   * A point a little way down the road this dinosaur is actually going to
+   * take, in world space. The camera aims here rather than off the end of its
+   * nose, so a bend or the way round a fork shows on screen before the
+   * dinosaur turns into it.
+   */
+  look: THREE.Vector3
   active: boolean
 }
+
+/** How far down its route, in road units, the chase camera looks. */
+export const CHASE_LOOK_AHEAD = 3
+
+/** A lap fraction `distance` road units on from `t`, in the direction of travel. */
+export const aheadOf = (course: Course, t: number, distance: number) => t + distance / course.length
 
 export function Racers({ racers, course, running, onFinish, onLap, onSample, leaderOut, chaseId, chaseOut, steering, recorder }: {
   /** Mutated in place by the frame loop; remount the component to reset. */
@@ -90,12 +103,13 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
       // this same frame rather than lagging a frame behind the player's input.
       if (steering) {
         const direction = steering.input.current
-        if (direction !== 0) {
-          for (const racer of racers) {
-            if (!racer.driven || racer.finishedAt !== null) continue
-            const moved = racer.lane + direction * STEER_SPEED * delta
-            racer.lane = Math.max(-STEER_LIMIT, Math.min(STEER_LIMIT, moved))
-          }
+        for (const racer of racers) {
+          if (!racer.driven || racer.finishedAt !== null) continue
+          // Kept every frame, released included: a fork reads it as intent.
+          racer.steer = direction
+          if (direction === 0) continue
+          const moved = racer.lane + direction * STEER_SPEED * delta
+          racer.lane = Math.max(-STEER_LIMIT, Math.min(STEER_LIMIT, moved))
         }
       }
 
@@ -241,6 +255,15 @@ export function Racers({ racers, course, running, onFinish, onLap, onSample, lea
           frame.position.z * WORLD_SCALE,
         )
         chaseOut.heading = frame.heading + (reversing ? Math.PI : 0)
+        // Down the route it will take, forks it has not reached included, and
+        // back up the road while a tornado has it running the wrong way.
+        const reach = (reversing ? -1 : 1) * CHASE_LOOK_AHEAD
+        const ahead = course.frameAt(
+          aheadOf(course, course.startT + racer.progress, reach),
+          racer.lane,
+          plannedRoute(racer, course),
+        ).position
+        chaseOut.look.set(ahead.x * WORLD_SCALE, ahead.y * WORLD_LIFT, ahead.z * WORLD_SCALE)
         chaseOut.active = true
       }
     })

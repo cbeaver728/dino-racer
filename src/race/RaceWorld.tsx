@@ -641,39 +641,67 @@ function CourseCamera({ follow, resetView, resetOffset }: {
 // and a tornado only appeared once it was too late to dodge it.
 const CHASE_BACK = 5.6
 const CHASE_HEIGHT = 2.7
-// Aimed down the road rather than at the dinosaur's heels, so the pickups coming
-// up have somewhere to be on screen.
-const CHASE_AHEAD = 2.9
 const CHASE_LOOK_UP = 0.85
+/**
+ * How quickly, per second, the camera closes on where it wants to be and on
+ * where it wants to look. Eased on real time rather than a fixed share a frame,
+ * so it trails the same on a slow tablet as on a fast monitor. The aim is the
+ * quicker of the two, so the view turns into a bend before the camera swings
+ * round behind.
+ */
+const CHASE_FOLLOW = 7.5
+const CHASE_TURN = 10
+/** A jump bigger than this is a new racer or a scrub, not movement: cut, don't pan. */
+const CHASE_CUT = 12
 
-/** Rides just behind and above one dinosaur, looking down the road ahead of it. */
+/**
+ * Rides just behind and above one dinosaur, looking down the road it is about
+ * to take.
+ *
+ * It used to aim off the end of the dinosaur's nose. That shows where the
+ * dinosaur points this instant, not where the road takes it, so going into a
+ * bend or down one way of a fork the picture showed one direction and then
+ * swung to another. Aiming at a point a little way down the racer's own route
+ * — including the way it will take at a fork it has not reached — puts the
+ * turn on screen before the dinosaur makes it. The camera also sits behind the
+ * dinosaur on the line to that point, so it trails round a bend instead of
+ * pivoting with the dinosaur's nose on the tight corners.
+ */
 function ChaseCamera({ target }: { target: ChaseTarget }) {
   const camera = useThree((state) => state.camera)
   const desired = useRef(new THREE.Vector3())
-  const look = useRef(new THREE.Vector3())
+  const aim = useRef(new THREE.Vector3())
   const settled = useRef(false)
 
-  useFrame(() => {
+  useFrame((_, rawDelta) => {
     if (!target.active) return
-    const forwardX = Math.cos(target.heading)
-    const forwardZ = -Math.sin(target.heading)
+    const delta = Math.min(rawDelta, 0.1)
+
+    let backX = target.position.x - target.look.x
+    let backZ = target.position.z - target.look.z
+    const reach = Math.hypot(backX, backZ)
+    if (reach > 1e-3) {
+      backX /= reach
+      backZ /= reach
+    } else {
+      backX = -Math.cos(target.heading)
+      backZ = Math.sin(target.heading)
+    }
 
     desired.current.set(
-      target.position.x - forwardX * CHASE_BACK,
+      target.position.x + backX * CHASE_BACK,
       target.position.y + CHASE_HEIGHT,
-      target.position.z - forwardZ * CHASE_BACK,
+      target.position.z + backZ * CHASE_BACK,
     )
-    // Snap on the first frame, then trail, so switching racer does not sling the
-    // camera across the field.
-    camera.position.lerp(desired.current, settled.current ? .12 : 1)
+
+    // Snap on the first frame and on any jump, then trail, so switching racer
+    // or scrubbing a replay cuts to them instead of panning across the field.
+    const cut = !settled.current || aim.current.distanceTo(target.look) > CHASE_CUT
+    camera.position.lerp(desired.current, cut ? 1 : 1 - Math.exp(-CHASE_FOLLOW * delta))
+    aim.current.lerp(target.look, cut ? 1 : 1 - Math.exp(-CHASE_TURN * delta))
     settled.current = true
 
-    look.current.set(
-      target.position.x + forwardX * CHASE_AHEAD,
-      target.position.y + CHASE_LOOK_UP,
-      target.position.z + forwardZ * CHASE_AHEAD,
-    )
-    camera.lookAt(look.current)
+    camera.lookAt(aim.current.x, aim.current.y + CHASE_LOOK_UP, aim.current.z)
   })
 
   return null

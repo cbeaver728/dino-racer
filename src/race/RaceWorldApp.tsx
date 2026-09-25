@@ -98,7 +98,7 @@ export default function RaceWorldApp() {
   const replay = useRef<Replay | null>(null)
   const playback = useRef<Playback>({ time: 0, playing: true, speed: 1 })
   const leader = useRef(new THREE.Vector3())
-  const chase = useRef<ChaseTarget>({ position: new THREE.Vector3(), heading: 0, active: false })
+  const chase = useRef<ChaseTarget>({ position: new THREE.Vector3(), heading: 0, look: new THREE.Vector3(), active: false })
 
   const course = COURSES[courseIndex]
   useEffect(() => {

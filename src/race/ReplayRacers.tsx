@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Dinosaur } from '../components/Dinosaur'
 import { WORLD_LIFT, WORLD_SCALE, type Course } from './course'
-import { DINO_SCALE, type ChaseTarget } from './Racers'
+import { CHASE_LOOK_AHEAD, DINO_SCALE, aheadOf, type ChaseTarget } from './Racers'
 import { PickupModel } from './PickupModels'
 import type { Pickup } from './pickups'
 import { emptySample, routeOf, sampleReplay, type Playback, type Replay, type ReplayPickupSpan } from './replay'
@@ -82,6 +82,26 @@ export function ReplayRacers({ replay, course, playback, onTick, leaderOut, chas
           frame.position.z * WORLD_SCALE,
         )
         chaseOut.heading = frame.heading + (sample.flip ? Math.PI : 0)
+
+        // A replay knows which way round the next fork this racer really went,
+        // so the look-ahead reads it from the tape instead of guessing: walk on
+        // to the first frame that reaches the look point and take its route.
+        let branches = sample.branches
+        if (!sample.flip) {
+          const wanted = sample.progress + CHASE_LOOK_AHEAD / course.length
+          for (let at = cursor.current; at < replay.frames.length; at++) {
+            const later = replay.frames[at].racers[index]
+            if (!later) break
+            if (later.progress >= wanted) { branches |= later.branches; break }
+          }
+        }
+        const reach = (sample.flip ? -1 : 1) * CHASE_LOOK_AHEAD
+        const ahead = course.frameAt(
+          aheadOf(course, course.startT + sample.progress, reach),
+          sample.lane,
+          routeOf(branches, course.splits.length),
+        ).position
+        chaseOut.look.set(ahead.x * WORLD_SCALE, ahead.y * WORLD_LIFT, ahead.z * WORLD_SCALE)
         chaseOut.active = true
       }
     })

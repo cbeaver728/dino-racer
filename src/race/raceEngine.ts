@@ -34,6 +34,8 @@ export interface RacerState {
   effect: 'boost' | 'reverse' | null
   /** True for the dinosaur the player is steering, if any. */
   driven: boolean
+  /** Which way the player is holding the steering this frame: -1, 0 or 1. */
+  steer: number
   /** Which way they went at each fork; -1 until they reach one. */
   route: Route
   finishedAt: number | null
@@ -65,6 +67,7 @@ export function createRacers(entries: SavedDinosaur[], course: Course, drivenId?
       reverseSpan: 0,
       effect: null,
       driven: entry.id === drivenId,
+      steer: 0,
       route: course.splits.map(() => -1),
       finishedAt: null,
       place: null,
@@ -73,21 +76,53 @@ export function createRacers(entries: SavedDinosaur[], course: Course, drivenId?
 }
 
 /**
+ * How far ahead, in lanes, the player's steering counts when a fork is chosen:
+ * about a quarter of a second of holding a direction.
+ */
+const FORK_INTENT = 0.4
+
+/**
  * Which way this racer goes at a fork.
  *
- * The player picks by steering: whichever side of the road they are on as they
- * reach the fork is the way they take, so the choice is made with their thumbs
- * and not from a menu. Everyone else reads their own terrain paces and takes
- * the ground that suits them, which is what makes a webbed-footed rival head
- * for the water while a clawed one climbs.
+ * The player picks by steering: the side of the road they are on as they reach
+ * the fork, nudged by the way they are pressing, so the choice is made with
+ * their thumbs and not from a menu. Counting the press matters because the
+ * roads only visibly part after the fork: a child a hair right of centre who is
+ * already steering left means left, and taking the lane alone sent them right.
+ * Everyone else reads their own terrain paces and takes the ground that suits
+ * them, which is what makes a webbed-footed rival head for the water while a
+ * clawed one climbs.
  */
 function chooseBranch(racer: RacerState, split: CourseSplit) {
-  if (racer.driven) return racer.lane > 0 ? 1 : 0
+  if (racer.driven) return racer.lane + racer.steer * FORK_INTENT > 0 ? 1 : 0
   const left = racer.paces[split.terrains[0]]
   const right = racer.paces[split.terrains[1]]
   if (left === right) return racer.seed % 2 < 1 ? 0 : 1
   return right > left ? 1 : 0
 }
+
+/**
+ * The racer's route with every fork it has not reached yet filled in with the
+ * way it would take if it got there now. The chase camera looks down this
+ * route, so it leans into the road the player is lining up for before the
+ * choice is locked — the only warning they get of which way they are going.
+ */
+export function plannedRoute(racer: RacerState, course: Course): Route {
+  return racer.route.map((side, index) => (side >= 0 ? side : chooseBranch(racer, course.splits[index])))
+}
+
+/** How far before a fork, in road units, a computer racer lines up for it. */
+const FORK_APPROACH = 9
+/** How far to its own side of centre it wants to be as the road splits. */
+const FORK_LINE = 0.35
+/** Lanes per second it drifts over to get there. */
+const FORK_DRIFT = 1.2
+/**
+ * Lanes per second a racer is eased back onto its own way round a fork. Quick,
+ * but not a jump: a choice made on steering intent can start a racer a little
+ * over the line, and it slides back while the two roads still overlap.
+ */
+const FORK_SETTLE = 6
 
 /** How far ahead a computer racer looks for lava, in world units. */
 const LAVA_LOOKAHEAD = 4.6
@@ -125,6 +160,27 @@ export function stepRacer(racer: RacerState, delta: number, elapsed: number, cou
     const inside = lapT >= split.from && lapT < split.to
     if (!inside) racer.route[split.index] = -1
     else if (racer.route[split.index] < 0) racer.route[split.index] = chooseBranch(racer, split)
+  }
+
+  /*
+   * Computer racers line up for a fork before they reach it.
+   *
+   * They choose by terrain, not by lane, so one sitting on the far side of the
+   * road was carried straight across the other way's mouth as the roads parted
+   * — from any camera, a dinosaur that looked set for the left road swerving
+   * off to the right. Drifting over beforehand is what a driver would do.
+   */
+  if (!racer.driven) {
+    for (const split of course.splits) {
+      if (racer.route[split.index] >= 0) continue
+      const ahead = (((split.from - lapT) % 1) + 1) % 1
+      if (ahead * course.length > FORK_APPROACH) continue
+      const side = chooseBranch(racer, split) === 1 ? 1 : -1
+      if (side * racer.lane >= FORK_LINE) continue
+      const target = side * FORK_LINE
+      const step = Math.sign(target - racer.lane) * FORK_DRIFT * delta
+      racer.lane = Math.abs(step) >= Math.abs(target - racer.lane) ? target : racer.lane + step
+    }
   }
 
   racer.terrain = course.terrainOn(lapT, racer.route)
@@ -167,6 +223,20 @@ export function stepRacer(racer: RacerState, delta: number, elapsed: number, cou
         racer.lane = Math.max(-LANE_LIMIT, Math.min(LANE_LIMIT, moved))
       }
     }
+  }
+
+  /*
+   * Stay on the way round a fork that was taken. Applied to everyone, after
+   * the player's steering and any lava dodging: steering into the dividing line
+   * just holds a dinosaur against it, which is what a divided road should feel
+   * like, instead of letting it wander onto the other road and then be dragged
+   * back off it.
+   */
+  const kept = course.ownRoadLane(t, racer.route, racer.lane)
+  if (kept !== racer.lane) {
+    const gap = kept - racer.lane
+    const step = Math.sign(gap) * FORK_SETTLE * delta
+    racer.lane = Math.abs(step) >= Math.abs(gap) ? kept : racer.lane + step
   }
 
   // A slow surge unique to each racer so the field trades places on the way

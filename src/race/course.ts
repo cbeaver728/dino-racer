@@ -25,10 +25,10 @@ export interface BiomeLayout {
 /**
  * A stretch where the road divides in two and joins back up.
  *
- * The pair are always the same length as each other and as the stretch of the
- * main curve they replace, so which way a racer goes never changes how far they
- * have to run — only what they run over. That is the whole point of the choice:
- * a webbed-footed dinosaur wants the water, a clawed one wants the rock.
+ * Both ways take a racer exactly the same share of the lap, so which way they go
+ * never changes how far they have to run in race terms — only what they run
+ * over. That is the whole point of the choice: a webbed-footed dinosaur wants
+ * the water, a clawed one wants the rock.
  */
 export interface SplitDefinition {
   /** Lap fractions on the main curve where the road parts and rejoins. */
@@ -40,9 +40,9 @@ export interface SplitDefinition {
   /** Shown on the course card. */
   label: string
   /**
-   * How far each way bows off the straight line between the fork and the
-   * merge. Set for how clearly the two roads should read as separate, since
-   * nothing else constrains it.
+   * How far each way bows out from the road at the middle of the fork. Set for
+   * how clearly the two roads should read as separate; trimmed automatically on
+   * the inside of a bend, where the full bow would pinch the road.
    */
   bow?: number
 }
@@ -171,6 +171,8 @@ export interface Course {
   /** Terrain at this point of the lap, honouring which way the racer went. */
   terrainOn(t: number, route?: Route): Terrain
   frameAt(t: number, lane: number, route?: Route): { position: THREE.Vector3; heading: number }
+  /** `lane`, held back from reaching onto the other way round a fork. */
+  ownRoadLane(t: number, route: Route | undefined, lane: number): number
   /** 1 in the clear, less inside a lava pool. */
   paceAt(x: number, z: number): number
   currentAt(t: number): number
@@ -182,69 +184,153 @@ export interface Course {
 }
 
 /**
- * One way round a fork: a path that leaves the road along the road's own
- * direction, bows out to `bow` at its midpoint, and rejoins pointing the way the
- * road goes.
+ * The line a fork is built around: one smooth curve from the fork to the merge
+ * that leaves and arrives along the road's own heading.
  *
- * Built as two cubic segments meeting at the bowed midpoint, because a single
- * cubic cannot both match a tangent at each end and be pushed sideways in the
- * middle. Matching those tangents is the whole point: bending the control
- * points sideways instead put a thirty degree corner at every fork, which is
- * what tore triangular gaps between the road ribbons and snapped the racers
- * round as they entered and left.
+ * Its handles are sized so the curve follows a circular arc when the road bends
+ * evenly through the fork, and a third of the chord on a straight, so it takes
+ * the road's overall turn at an even rate.
+ *
+ * Neither obvious alternative works as a spine. The straight chord between the
+ * ends points the wrong way on a bend, so ways bowed off it set off along the
+ * road, hooked across, and swung back through the best part of a hundred
+ * degrees. The road itself carries the tight corners these loose splines gather
+ * at their control points, and ways offset from it inherit every one.
  */
-function forkPath(curve: THREE.CatmullRomCurve3, from: number, to: number, bow: number) {
+function forkSpine(curve: THREE.CatmullRomCurve3, from: number, to: number) {
   const p0 = curve.getPointAt(from)
   const p1 = curve.getPointAt(to)
-  const t0 = curve.getTangentAt(from).clone().setY(0).normalize()
-  const t1 = curve.getTangentAt(to).clone().setY(0).normalize()
-
-  const chord = new THREE.Vector3().subVectors(p1, p0)
-  const span = chord.length()
-  const along = chord.clone().normalize()
-  const side = new THREE.Vector3(-along.z, 0, along.x)
-  const middle = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5).addScaledVector(side, bow)
-  const reach = span * 0.27
-
-  const path = new THREE.CurvePath<THREE.Vector3>()
-  path.add(new THREE.CubicBezierCurve3(
+  const t0 = curve.getTangentAt(from).setY(0).normalize()
+  const t1 = curve.getTangentAt(to).setY(0).normalize()
+  const chord = Math.hypot(p1.x - p0.x, p1.z - p0.z)
+  const angle = t0.angleTo(t1)
+  const handle = angle < 1e-3
+    ? chord / 3
+    : (4 / 3) * Math.tan(angle / 4) * (chord / (2 * Math.sin(angle / 2)))
+  return new THREE.CubicBezierCurve3(
     p0,
-    p0.clone().addScaledVector(t0, reach),
-    middle.clone().addScaledVector(along, -reach),
-    middle,
-  ))
-  path.add(new THREE.CubicBezierCurve3(
-    middle,
-    middle.clone().addScaledVector(along, reach),
-    p1.clone().addScaledVector(t1, -reach),
+    p0.clone().addScaledVector(t0, handle),
+    p1.clone().addScaledVector(t1, -handle),
     p1,
-  ))
-  return path
+  )
 }
 
 /**
- * Both ways round one fork, exactly equal in length.
+ * One way round a fork: the spine, shifted sideways by a bump that is zero at
+ * the fork and at the merge.
  *
- * Tangent continuity costs the mirror symmetry that used to make the pair equal
- * for free, so the shorter way is bowed out further until it matches. Bowing
- * further is monotonically longer, so a bisection lands it, and both ways still
- * bow at least as far as asked — which is what keeps them visibly two roads.
+ * Built as an offset rather than a curve of its own, a way stays on its own
+ * side the whole distance and never turns the wrong way first — the left way is
+ * always left of the right way. The bump is sin², so the offset and its slope
+ * are both zero at each end and the way leaves and rejoins along the road's own
+ * heading.
+ */
+class ForkBranch extends THREE.Curve<THREE.Vector3> {
+  readonly spine: THREE.CubicBezierCurve3
+  /** Signed peak offset at the middle of the fork; positive is the driver's right. */
+  readonly bow: number
+
+  constructor(spine: THREE.CubicBezierCurve3, bow: number) {
+    super()
+    this.spine = spine
+    this.bow = bow
+    // Arc-length lookups drive both racers and road ribbons; the offset makes
+    // spacing uneven round a bend, so be generous with the table.
+    this.arcLengthDivisions = 320
+  }
+
+  getPoint(f: number, target = new THREE.Vector3()) {
+    const point = this.spine.getPoint(f)
+    const tangent = this.spine.getTangent(f).setY(0).normalize()
+    const offset = this.bow * Math.sin(Math.PI * f) ** 2
+    return target.set(point.x - tangent.z * offset, point.y, point.z + tangent.x * offset)
+  }
+}
+
+/**
+ * The sharpest a fork road may turn, in radians per unit of road. A touch over
+ * the tightest corners already on the circuits, so taking a fork never throws a
+ * dinosaur round harder than the road around it does.
+ */
+const FORK_MAX_TURN = THREE.MathUtils.degToRad(30)
+
+/**
+ * Distance a turn is measured over: about a quarter of a racing dinosaur.
+ *
+ * What a driver feels is how far the heading swings over a short stretch, not
+ * the curvature at a point. The splines' curvature jumps at every control
+ * point, and a sideways offset turns each jump into a kink of a degree or so —
+ * invisible, but read pointwise it looks like a hairpin.
+ */
+const TURN_WINDOW = 0.6
+
+/** Sharpest sustained turn along a branch, in radians per unit of road. */
+function sharpestTurn(branch: ForkBranch) {
+  const STEPS = 600
+  const points = Array.from({ length: STEPS + 1 }, (_, index) => branch.getPoint(index / STEPS))
+  const walked = [0]
+  const headings: number[] = []
+  for (let index = 0; index < STEPS; index++) {
+    const a = points[index]
+    const b = points[index + 1]
+    walked.push(walked[index] + Math.hypot(b.x - a.x, b.z - a.z))
+    headings.push(Math.atan2(b.z - a.z, b.x - a.x))
+  }
+
+  let worst = 0
+  let ahead = 0
+  for (let index = 0; index < STEPS; index++) {
+    while (ahead < STEPS - 1 && walked[ahead] - walked[index] < TURN_WINDOW) ahead++
+    const run = walked[ahead] - walked[index]
+    if (run <= 0) continue
+    const turn = Math.abs(Math.atan2(Math.sin(headings[ahead] - headings[index]), Math.cos(headings[ahead] - headings[index])))
+    worst = Math.max(worst, turn / Math.max(run, TURN_WINDOW))
+  }
+  return worst
+}
+
+/**
+ * The widest bow up to `wanted` that keeps a branch no sharper than a corner.
+ *
+ * Measured rather than derived. Shifting a road toward the inside of its own
+ * bend compresses it — the inside way covers less ground than the road it
+ * replaces, so the same sideways drift makes a steeper angle and a much tighter
+ * turn — and on these loose splines the bends gather at the control points,
+ * which no simple rule caught. So each branch is built, its sharpest point is
+ * read off, and the bow is narrowed until it passes. On a straight both ways
+ * keep their full bow; on a bend the inside way hugs the road and the outside
+ * way swings wide, which is what a bypass looks like.
+ */
+function fittedBranch(spine: THREE.CubicBezierCurve3, side: 1 | -1, wanted: number) {
+  const make = (bow: number) => new ForkBranch(spine, side * bow)
+  // Never demand more than the spine itself manages over the same stretch.
+  const allowed = Math.max(FORK_MAX_TURN, sharpestTurn(make(0)) * 1.15)
+  const full = make(wanted)
+  if (sharpestTurn(full) <= allowed) return full
+
+  let low = 0
+  let high = wanted
+  for (let step = 0; step < 14; step++) {
+    const middle = (low + high) / 2
+    if (sharpestTurn(make(middle)) <= allowed) low = middle
+    else high = middle
+  }
+  return make(low)
+}
+
+/**
+ * Both ways round one fork. Each bows out as far as asked, except where that
+ * would make it turn harder than a corner — in practice the inside of a bend.
+ *
+ * The two are not the same drawn length, and do not need to be: progress is
+ * counted in lap fractions and a fork maps its share of the lap onto whichever
+ * way a racer takes, so both ways always take exactly the same time. Forcing
+ * the drawn lengths equal on a bend meant contorting the inside way to lengthen
+ * it, which is what made the forks swerve.
  */
 function forkPair(curve: THREE.CatmullRomCurve3, from: number, to: number, wanted: number) {
-  const lengthAt = (bow: number) => forkPath(curve, from, to, bow).getLength()
-  const target = Math.max(lengthAt(-wanted), lengthAt(wanted))
-
-  const matched = (sign: number) => {
-    let low = wanted
-    let high = wanted + 24
-    for (let step = 0; step < 40; step++) {
-      const bow = (low + high) / 2
-      if (lengthAt(sign * bow) < target) low = bow
-      else high = bow
-    }
-    return forkPath(curve, from, to, sign * ((low + high) / 2))
-  }
-  return [matched(-1), matched(1)] as const
+  const spine = forkSpine(curve, from, to)
+  return [fittedBranch(spine, -1, wanted), fittedBranch(spine, 1, wanted)] as const
 }
 
 const drift = (seed: number) => {
@@ -339,8 +425,8 @@ export function buildCourse(def: CourseDefinition): Course {
    * onto distance — which is what lets progress, pickups and the replay carry on
    * knowing nothing about forks.
    *
-   * Both ways round a fork are the same length, so the lap is the same length
-   * whichever way a racer goes.
+   * A fork is one leg whichever way a racer goes, so the lap is the same
+   * distance in race terms either way round.
    */
   const defs = (def.splits ?? []).slice().sort((a, b) => a.from - b.from)
   const legs: CourseLeg[] = []
@@ -353,8 +439,10 @@ export function buildCourse(def: CourseDefinition): Course {
         samples: sliceOfCurve(curve, cursor, split.from) })
     }
     const arcs = forkPair(curve, split.from, split.to, split.bow ?? 6)
+    // Sized by the average of the two ways, so neither moves across the ground
+    // much faster or slower than its racer's legs suggest.
     legs.push({ kind: 'split', splitIndex: index, curves: [arcs[0], arcs[1]], uFrom: split.from, uTo: split.to,
-      length: arcs[0].getLength(), tFrom: 0, tTo: 0, samples: arcs[0].getSpacedPoints(40) })
+      length: (arcs[0].getLength() + arcs[1].getLength()) / 2, tFrom: 0, tTo: 0, samples: arcs[0].getSpacedPoints(40) })
     cursor = split.to
   })
   if (cursor < 1) {
@@ -434,6 +522,82 @@ export function buildCourse(def: CourseDefinition): Course {
       // The model faces +X, so align +X with the tangent rather than +Z.
       heading: Math.atan2(-tangent.z, tangent.x),
     }
+  }
+
+  /*
+   * The nearest lane to `lane` that keeps a racer on the way round a fork it
+   * actually took.
+   *
+   * Just past a fork the two ways overlap, and a lane measured off one of them
+   * can reach across onto the other. A racer out there is drawn on the wrong
+   * road while the race carries it along its own — a driver who committed
+   * right and then steered left spent a second visibly on the left road before
+   * being dragged off to the right. So a racer may edge toward the other way
+   * only while it is still nearer its own centreline than any part of the
+   * other one.
+   *
+   * Measured against the whole of the other way rather than the point level
+   * with the racer: where the two splay apart, the closest stretch of the other
+   * road is further along, and a line drawn level with the racer let it cross.
+   */
+  const DENSE = 240
+  const dense = new Map(legs.filter((leg) => leg.kind === 'split').map((leg) => (
+    [leg, [leg.curves[0].getSpacedPoints(DENSE), leg.curves[1].getSpacedPoints(DENSE)]] as const
+  )))
+  const ownRoadLane = (t: number, route: Route | undefined, lane: number) => {
+    const wrapped = ((t % 1) + 1) % 1
+    const leg = legAt(wrapped)
+    const ways = dense.get(leg)
+    if (!ways) return lane
+    const local = leg.tTo > leg.tFrom ? (wrapped - leg.tFrom) / (leg.tTo - leg.tFrom) : 0
+    const at = Math.min(1, Math.max(0, local))
+    // Only while the ways pull apart. As they come back together they are about
+    // to be one road again, and holding a racer off the other way there would
+    // just slide it sideways into the merge.
+    if (at > 0.5) return lane
+    const taken = route?.[leg.splitIndex] === 1 ? 1 : 0
+    // The left way is always left of the right way, so the other road lies to
+    // the right of the left way and to the left of the right way.
+    const toward = taken === 1 ? -1 : 1
+    if (lane * toward <= 0) return lane
+
+    const centre = leg.curves[taken].getPointAt(at)
+    const tangent = leg.curves[taken].getTangentAt(at).setY(0).normalize()
+    const other = ways[1 - taken]
+    const near = Math.round(at * DENSE)
+    const first = Math.max(0, near - 60)
+    const last = Math.min(DENSE, near + 60)
+
+    const toOther = (x: number, z: number) => {
+      let best = Number.POSITIVE_INFINITY
+      for (let index = first; index < last; index++) {
+        const a = other[index]
+        const b = other[index + 1]
+        const ex = b.x - a.x
+        const ez = b.z - a.z
+        const span = ex * ex + ez * ez
+        const s = span > 0 ? Math.min(1, Math.max(0, ((x - a.x) * ex + (z - a.z) * ez) / span)) : 0
+        best = Math.min(best, Math.hypot(x - a.x - ex * s, z - a.z - ez * s))
+      }
+      return best
+    }
+    const ownSide = (offset: number) => {
+      const x = centre.x - tangent.z * offset * toward
+      const z = centre.z + tangent.x * offset * toward
+      return toOther(x, z) > offset
+    }
+
+    const wanted = lane * toward
+    if (ownSide(wanted)) return lane
+    // Bisect for the furthest offset that is still nearer home than away.
+    let inner = 0
+    let outer = wanted
+    for (let step = 0; step < 14; step++) {
+      const middle = (inner + outer) / 2
+      if (ownSide(middle)) inner = middle
+      else outer = middle
+    }
+    return inner * toward
   }
 
   // Grown from the cone once the roads exist, so every stretch within reach of
@@ -556,7 +720,7 @@ export function buildCourse(def: CourseDefinition): Course {
 
   return {
     def, curve, samples: roadPoints, length: lapLength, startT: def.startT, mix, splits, legs, extent, lava,
-    terrainAt, splitAt, terrainOn, frameAt, paceAt, currentAt, clearanceAt, lavaSpan, distanceToRoad,
+    terrainAt, splitAt, terrainOn, frameAt, ownRoadLane, paceAt, currentAt, clearanceAt, lavaSpan, distanceToRoad,
   }
 }
 
@@ -620,8 +784,8 @@ const FIGURE_EIGHT: CourseDefinition = {
 /**
  * A tropical island lap around a live volcano, and the only course where the
  * road forks. Three times a lap it splits in two and joins back up, and the two
- * ways round are always the same length — the only thing that differs is what
- * is underfoot. A webbed-footed dinosaur wants the lagoon; a clawed one wants
+ * ways round always cost the same share of the lap — the only thing that
+ * differs is what is underfoot. A webbed-footed dinosaur wants the lagoon; a clawed one wants
  * the rock. The volcano fork is the quick way round for a sure-footed build and
  * the most punishing for anyone who cannot dodge, because its lava pools sit on
  * the racing line.
